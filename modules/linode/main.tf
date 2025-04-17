@@ -1,7 +1,7 @@
 # modules/linode/main.tf
 data "linode_profile" "me" {}
 resource "linode_instance" "resilio" {
-  label            = "${var.project_name}-${var.region}"
+  label            = "${var.project_name}.${var.region}"
   region           = var.region
   type             = var.instance_type
   # image            = "linode/ubuntu24.04"
@@ -19,8 +19,9 @@ resource "linode_instance" "resilio" {
       volume_id         = var.volume_id
       resilio_folder_key = var.resilio_folder_key
       resilio_license_key = var.resilio_license_key
-      ubuntu_advantage_token = var.ubuntu_advantage_token
       tld = var.tld
+      ubuntu_advantage_token = var.ubuntu_advantage_token
+      # grub_password = random_password.grub_password.result
     })
     )
   }
@@ -42,6 +43,15 @@ resource "linode_instance_disk" "resilio_boot_disk" {
   authorized_keys   = [var.ssh_public_key]
 }
 
+resource "linode_instance_disk" "resilio_tmp_disk" {
+  label     = "tmp"
+  linode_id = linode_instance.resilio.id
+  filesystem = "raw"
+
+  size  = 4000 # 4GB
+  
+}
+
 resource "linode_instance_config" "resilio" {
   label     = "resilio_boot_config"
   linode_id = linode_instance.resilio.id
@@ -50,9 +60,12 @@ resource "linode_instance_config" "resilio" {
     device_name = "sda"
     disk_id     = linode_instance_disk.resilio_boot_disk.id
   }
-
   device {
     device_name = "sdb"
+    disk_id     = linode_instance_disk.resilio_tmp_disk.id
+  }
+  device {
+    device_name = "sdc"
     volume_id   = var.volume_id
   }
 
