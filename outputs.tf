@@ -13,3 +13,10 @@ output "instance_ips" {
     }
   }
 }
+
+output "instance_ids" {
+  description = "IDs of the created instances"
+  value = {
+    for region, instance in module.linode_instances : region => instance.instance_id
+  }
+}

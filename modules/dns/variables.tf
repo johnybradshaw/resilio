@@ -30,3 +30,9 @@ variable "ttl_sec" {
   type = number
   default = 60
 }
+
+variable "tags" {
+  description = "Set of tags to apply to all resources"
+  type        = list(string)
+  default     = ["deployment: terraform", "app: resilio"]
+}

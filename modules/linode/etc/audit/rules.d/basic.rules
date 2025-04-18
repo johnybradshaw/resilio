@@ -1,0 +1,23 @@
+# Watch for changes to passwd and shadow files
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+
+# Monitor sudo usage
+-w /usr/bin/sudo -p x -k sudo_exec
+
+# Log all command executions (64-bit)
+-a always,exit -F arch=b64 -S execve -k exec_log
+
+# Monitor changes to audit logs (audit tampering)
+-w /var/log/audit/ -p wa -k auditlog
+
+# Watch for changes in /etc (configs)
+-w /etc/ -p wa -k etc_watch
+
+# Monitor crontab changes
+-w /etc/crontab -p wa -k cron_changes
+-w /etc/cron.d/ -p wa -k cron_changes
+
+# Track logins
+-w /var/log/wtmp -p wa -k logins
+-w /var/log/lastlog -p wa -k logins

@@ -56,3 +56,9 @@ variable "tld" {
   description = "Top-Level Domain (TLD)"
   type = string
 }
+
+variable "tags" {
+  description = "Set of tags to apply to all resources"
+  type        = list(string)
+  default     = ["deployment: terraform", "app: resilio"]
+}
