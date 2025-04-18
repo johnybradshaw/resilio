@@ -1,0 +1,12 @@
+# Required variables
+linode_token     = ""  # Your Linode API token
+ssh_public_key   = ""  # Your SSH public key content
+resilio_folder_key = ""  # Resilio Sync folder key for synchronization
+resilio_license_key = ""
+# Optional variables with defaults - uncomment and modify as needed
+regions        = []  # Linode regions to deploy to
+instance_type  = "g7-premium-4"  # Linode instance type
+volume_size    = 1024  # Storage volume size in GB
+project_name   = "resilio-sync"  # Name prefix for all resources
+ubuntu_advantage_token = ""
+tld = "resilio.domain.com"

@@ -30,28 +30,33 @@ module "linode_instances" {
   tld = var.tld
   
   volume_id = module.storage_volumes[each.key].volume_id
+  
+  tags = local.tags # Concat tags and tld
 }
 
+# Create a data volume for each region
 module "storage_volumes" {
   source = "./modules/volume"
   
-  for_each = toset(var.regions)
+  for_each = toset(var.regions) # ["us-east", "eu-west"]
   
   region       = each.key
   size         = var.volume_size
   project_name = var.project_name
+  tags = local.tags # Concat tags and tld
 }
 
+# Create a firewall
 module "firewall" {
   source = "./modules/firewall"
 
-  # pull the map of module objects into a list...
+  # Collect instance IDs
   linode_id   = [
     for inst in values(module.linode_instances) :
     inst.instance_id
   ]
 
-  # same for IPs (only flatten if each inst.ipv4_address is itself a list)
+  # Collect instance IPv4 and IPv6 addresses
   linode_ipv4 = flatten([
     for inst in values(module.linode_instances) :
     inst.ipv4_address
@@ -62,12 +67,13 @@ module "firewall" {
   ])
 
   project_name = var.project_name
+  tags = local.tags # Concat tags and tld
 }
 
 module "dns" {
   source = "./modules/dns"
 
-
+  # Collect instance labels
   linode_label = [
     for inst in values(module.linode_instances) :
     inst.instance_label
@@ -85,4 +91,5 @@ module "dns" {
 
   tld = var.tld
   project_name = var.project_name
+  tags = local.tags # Concat tags and tld
 }
