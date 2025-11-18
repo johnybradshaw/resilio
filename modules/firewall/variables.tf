@@ -10,7 +10,7 @@ variable "linode_ipv4" {
 }
 
 variable "linode_ipv6" {
-  description = "Linode instance IPv4 addresses"
+  description = "Linode instance IPv6 addresses"
   type        = list(string)
 }
 
@@ -23,4 +23,10 @@ variable "tags" {
   description = "Set of tags to apply to all resources"
   type        = list(string)
   default     = ["deployment: terraform", "app: resilio"]
+}
+
+variable "allowed_ssh_cidr" {
+  description = "CIDR block allowed for SSH/ping access (e.g., '1.2.3.4/32')"
+  type        = string
+  default     = "0.0.0.0/0"  # Default allows all - should be overridden for security
 }

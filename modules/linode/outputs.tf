@@ -18,3 +18,9 @@ output "ipv6_address" {
   description = "IPv6 address of the created Linode instance"
   value       = linode_instance.resilio.ipv6
 }
+
+output "root_password" {
+  description = "Root password for the Linode instance (keep secure)"
+  value       = random_password.root_password.result
+  sensitive   = true
+}
