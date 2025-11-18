@@ -1,0 +1,110 @@
+# .pre-commit-config.yaml
+# Pre-commit hooks for Terraform code quality and security
+#
+# Installation:
+# 1. Install pre-commit: pip install pre-commit
+# 2. Install hooks: pre-commit install
+# 3. (Optional) Run on all files: pre-commit run --all-files
+#
+# These hooks will run automatically before each commit
+
+repos:
+  # Terraform formatting and validation
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.94.1
+    hooks:
+      # Format Terraform files
+      - id: terraform_fmt
+        name: Terraform fmt
+        description: Rewrites Terraform files to canonical format
+
+      # Validate Terraform syntax
+      - id: terraform_validate
+        name: Terraform validate
+        description: Validates Terraform configuration files
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+
+      # Generate documentation from Terraform modules
+      - id: terraform_docs
+        name: Terraform docs
+        description: Inserts/updates documentation in README.md
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+
+      # Static analysis with tflint
+      - id: terraform_tflint
+        name: Terraform tflint
+        description: Lints Terraform code with tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+          - --hook-config=--delegate-chdir
+
+      # Security scanning with tfsec
+      - id: terraform_tfsec
+        name: Terraform tfsec
+        description: Static security analysis with tfsec
+        args:
+          - --args=--minimum-severity=MEDIUM
+          - --args=--exclude-downloaded-modules
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Prevent large files from being committed
+      - id: check-added-large-files
+        name: Check for large files
+        args: ['--maxkb=1000']
+
+      # Ensure files end with newline
+      - id: end-of-file-fixer
+        name: Fix end of files
+
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        args: [--markdown-linebreak-ext=md]
+
+      # Check for merge conflicts
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+
+      # Validate YAML files
+      - id: check-yaml
+        name: Check YAML syntax
+        args: ['--unsafe']  # Allow custom YAML tags
+
+      # Prevent committing to main/master
+      - id: no-commit-to-branch
+        name: Prevent commits to main
+        args: ['--branch', 'main', '--branch', 'master']
+
+  # Detect secrets and sensitive data
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package-lock.json
+
+# Configuration for specific file types
+files: ''
+exclude: |
+  (?x)^(
+      \.terraform/.*|
+      \.terraform\.lock\.hcl|
+      terraform\.tfstate.*|
+      \.git/.*|
+      backend\.tf$
+  )$
+
+# Global settings
+default_language_version:
+  python: python3
+
+fail_fast: false
+minimum_pre_commit_version: '2.18.0'

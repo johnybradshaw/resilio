@@ -37,3 +37,20 @@ override.tf.json
 terraform.rc
 .DS_Store
 modules/linode/#cloud-config.yml
+
+# Backend configuration (may contain credentials)
+backend.tf
+
+# Pre-commit hooks
+.secrets.baseline
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

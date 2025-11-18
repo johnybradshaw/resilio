@@ -37,6 +37,11 @@ resource "linode_instance_disk" "resilio_boot_disk" {
   filesystem = "ext4"
   root_pass         = random_password.root_password.result
   authorized_keys   = [var.ssh_public_key]
+
+  lifecycle {
+    # Prevent accidental deletion of boot disk
+    prevent_destroy = false  # Set to true in production if needed
+  }
 }
 
 resource "linode_instance_disk" "resilio_tmp_disk" {
@@ -75,6 +80,11 @@ resource "linode_instance_config" "resilio" {
 }
 
 resource "random_password" "root_password" {
-  length = 32
+  length  = 32
   special = true
+
+  lifecycle {
+    # Keep the same password across terraform runs
+    ignore_changes = [length, special]
+  }
 }
