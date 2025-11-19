@@ -1,5 +1,13 @@
 # modules/dns/main.tf
 
+locals {
+  # Create a map of label -> IP addresses for stable resource addressing
+  dns_records = { for idx, label in var.linode_label : label => {
+    ipv4 = var.linode_ipv4[idx]
+    ipv6 = var.linode_ipv6[idx]
+  }}
+}
+
 resource "linode_domain" "resilio" {
   type = "master"
   domain = var.tld
@@ -8,19 +16,19 @@ resource "linode_domain" "resilio" {
 }
 
 resource "linode_domain_record" "resilio_A" {
-  count       = length(var.linode_label)
+  for_each    = local.dns_records
   domain_id   = linode_domain.resilio.id
   record_type = "A"
-  name        = var.linode_label[count.index]
-  target      = var.linode_ipv4[count.index]
+  name        = each.key
+  target      = each.value.ipv4
   ttl_sec     = var.ttl_sec
 }
 
 resource "linode_domain_record" "resilio_AAAA" {
-  count       = length(var.linode_label)
+  for_each    = local.dns_records
   domain_id   = linode_domain.resilio.id
   record_type = "AAAA"
-  name        = var.linode_label[count.index]
-  target      = replace(var.linode_ipv6[count.index], "/128", "")
+  name        = each.key
+  target      = replace(each.value.ipv6, "/128", "")
   ttl_sec     = var.ttl_sec
 }

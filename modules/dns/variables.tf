@@ -16,7 +16,7 @@ variable "linode_ipv4" {
 }
 
 variable "linode_ipv6" {
-  description = "Linode instance IPv4 addresses"
+  description = "Linode instance IPv6 addresses"
   type        = list(string)
 }
 

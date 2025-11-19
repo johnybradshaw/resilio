@@ -67,6 +67,7 @@ module "firewall" {
   ])
 
   project_name = var.project_name
+  allowed_ssh_cidr = var.allowed_ssh_cidr
   tags = local.tags # Concat tags and tld
 }
 

@@ -13,7 +13,7 @@ resource "linode_instance" "resilio" {
   backups_enabled = true # Disable backups ([optional] and not available to managed customers)
   
   # Apply user data (cloud-init)
-  metadata { # Rquires base64encoding or errors
+  metadata { # Requires base64encoding or errors
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
       device_name       = local.label
       ssh_public_key    = var.ssh_public_key
@@ -26,11 +26,6 @@ resource "linode_instance" "resilio" {
     })
     )
   }
-  
-  # lifecycle {
-  #   ignore_changes = [ metadata ] # Ignore changes to user_data as it will be recreated
-  # }
-  # boot_config_label = "Default Configuration"
 }
 
 resource "linode_instance_disk" "resilio_boot_disk" {
@@ -42,6 +37,11 @@ resource "linode_instance_disk" "resilio_boot_disk" {
   filesystem = "ext4"
   root_pass         = random_password.root_password.result
   authorized_keys   = [var.ssh_public_key]
+
+  lifecycle {
+    # Prevent accidental deletion of boot disk
+    prevent_destroy = false  # Set to true in production if needed
+  }
 }
 
 resource "linode_instance_disk" "resilio_tmp_disk" {
@@ -80,6 +80,11 @@ resource "linode_instance_config" "resilio" {
 }
 
 resource "random_password" "root_password" {
-  length = 32
+  length  = 32
   special = true
+
+  lifecycle {
+    # Keep the same password across terraform runs
+    ignore_changes = [length, special]
+  }
 }

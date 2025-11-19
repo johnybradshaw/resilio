@@ -1,12 +1,59 @@
-# Required variables
-linode_token     = ""  # Your Linode API token
-ssh_public_key   = ""  # Your SSH public key content
-resilio_folder_key = ""  # Resilio Sync folder key for synchronization
+# terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in your values
+# IMPORTANT: Never commit terraform.tfvars to version control!
+
+# ============================================================================
+# Required Variables - Must be configured
+# ============================================================================
+
+# Linode API token (get from: https://cloud.linode.com/profile/tokens)
+linode_token = ""
+
+# Your SSH public key content (e.g., from ~/.ssh/id_rsa.pub)
+ssh_public_key = ""
+
+# Resilio Sync folder key for automatic synchronization
+resilio_folder_key = ""
+
+# Resilio Sync license key (for paid features)
 resilio_license_key = ""
-# Optional variables with defaults - uncomment and modify as needed
-regions        = []  # Linode regions to deploy to
-instance_type  = "g7-premium-4"  # Linode instance type
-volume_size    = 1024  # Storage volume size in GB
-project_name   = "resilio-sync"  # Name prefix for all resources
+
+# Top-Level Domain for DNS configuration
+# This domain will be managed by Linode DNS
+# After deployment, configure your registrar to use Linode nameservers
+tld = "example.com"
+
+# Ubuntu Advantage token for Ubuntu Pro features (optional but recommended)
 ubuntu_advantage_token = ""
-tld = "resilio.domain.com"
+
+# ============================================================================
+# Optional Variables - Have sensible defaults
+# ============================================================================
+
+# List of Linode regions to deploy instances
+# Available regions: https://www.linode.com/docs/products/platform/get-started/guides/choose-a-data-center/
+# Default: ["us-east", "eu-west"]
+regions = ["us-east", "eu-west"]
+
+# Linode instance type
+# View options: linode-cli linodes types
+# Default: "g6-standard-1"
+instance_type = "g6-standard-2"
+
+# Storage volume size in GB (min: 10, max: 10000)
+# Default: 20
+volume_size = 100
+
+# Project name prefix for all resources
+# Default: "resilio-sync"
+project_name = "resilio-sync"
+
+# CIDR block allowed for SSH/ping access
+# SECURITY: Set this to your IP address for better security!
+# Find your IP: curl ifconfig.me
+# Default: "0.0.0.0/0" (allows all - NOT RECOMMENDED for production)
+allowed_ssh_cidr = "0.0.0.0/0"  # Change to "YOUR_IP/32" for security
+
+# Tags to apply to all resources
+# Default: ["deployment: terraform", "app: resilio"]
+tags = ["deployment: terraform", "app: resilio", "environment: production"]
