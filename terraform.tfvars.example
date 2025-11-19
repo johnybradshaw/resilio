@@ -48,11 +48,29 @@ volume_size = 100
 # Default: "resilio-sync"
 project_name = "resilio-sync"
 
-# CIDR block allowed for SSH/ping access
+# ============================================================================
+# Security Configuration
+# ============================================================================
+
+# Enable secure jumphost (HIGHLY RECOMMENDED for production)
+# When enabled, only the jumphost can SSH to Resilio VMs
+# Default: true
+enable_jumphost = true
+
+# Region for jumphost deployment
+# Leave empty to use the first region in the regions list
+# Default: "" (uses first region)
+jumphost_region = ""
+
+# CIDR block allowed for SSH access to jumphost
 # SECURITY: Set this to your IP address for better security!
 # Find your IP: curl ifconfig.me
 # Default: "0.0.0.0/0" (allows all - NOT RECOMMENDED for production)
 allowed_ssh_cidr = "0.0.0.0/0"  # Change to "YOUR_IP/32" for security
+
+# ============================================================================
+# Resource Tagging
+# ============================================================================
 
 # Tags to apply to all resources
 # Default: ["deployment: terraform", "app: resilio"]

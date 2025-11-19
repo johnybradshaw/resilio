@@ -79,12 +79,24 @@ variable "tags" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed for SSH/ping access to instances (e.g., '1.2.3.4/32')"
+  description = "CIDR block allowed for SSH access to jumphost (e.g., '1.2.3.4/32'). Jumphost provides secure access to Resilio instances."
   type        = string
-  default     = "0.0.0.0/0"  # Default allows all - override with your IP for security
+  default     = "0.0.0.0/0"  # Default allows all - STRONGLY recommend setting to your IP for security
 
   validation {
     condition     = can(cidrhost(var.allowed_ssh_cidr, 0))
     error_message = "Must be a valid CIDR block (e.g., '1.2.3.4/32' or '0.0.0.0/0')."
   }
+}
+
+variable "enable_jumphost" {
+  description = "Enable jumphost for secure SSH access to Resilio instances. When enabled, only jumphost can SSH to Resilio VMs."
+  type        = bool
+  default     = true
+}
+
+variable "jumphost_region" {
+  description = "Linode region for jumphost deployment. Defaults to first region in regions list if not specified."
+  type        = string
+  default     = ""
 }

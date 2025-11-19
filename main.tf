@@ -15,6 +15,24 @@
 #         └── outputs.tf
 
 # main.tf
+
+# Locals for jumphost region selection
+locals {
+  jumphost_region = var.jumphost_region != "" ? var.jumphost_region : var.regions[0]
+}
+
+# Create secure jumphost (optional but recommended for production)
+module "jumphost" {
+  count  = var.enable_jumphost ? 1 : 0
+  source = "./modules/jumphost"
+
+  region           = local.jumphost_region
+  ssh_public_key   = var.ssh_public_key
+  allowed_ssh_cidr = var.allowed_ssh_cidr
+  project_name     = var.project_name
+  tags             = local.tags
+}
+
 module "linode_instances" {
   source = "./modules/linode"
   
@@ -66,8 +84,12 @@ module "firewall" {
     inst.ipv6_address
   ])
 
-  project_name = var.project_name
+  project_name     = var.project_name
   allowed_ssh_cidr = var.allowed_ssh_cidr
+  # If jumphost is enabled, only allow SSH from jumphost; otherwise use allowed_ssh_cidr
+  jumphost_ipv4 = var.enable_jumphost ? flatten([
+    for jumphost in module.jumphost : jumphost.jumphost_ipv4
+  ]) : []
   tags = local.tags # Concat tags and tld
 }
 

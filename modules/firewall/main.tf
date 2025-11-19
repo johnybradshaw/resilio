@@ -28,19 +28,27 @@ resource "linode_firewall" "resilio" {
     ipv6 = var.linode_ipv6  # Linode returns IPv6 addresses with /128 CIDR notation
   }
 
-  # Allow SSH from the jump host only
-  inbound {
-    label    = "jump-host-ssh"
-    action   = "ACCEPT"
-    protocol = "TCP"
-    ports    = "22,2022"
-    ipv4     = [ var.allowed_ssh_cidr ]
+  # Allow SSH from jumphost (if enabled) or from allowed_ssh_cidr (legacy/fallback)
+  dynamic "inbound" {
+    for_each = length(var.jumphost_ipv4) > 0 || var.allowed_ssh_cidr != "" ? [1] : []
+    content {
+      label    = length(var.jumphost_ipv4) > 0 ? "jumphost-ssh-only" : "direct-ssh-access"
+      action   = "ACCEPT"
+      protocol = "TCP"
+      ports    = "22,2022"
+      ipv4     = length(var.jumphost_ipv4) > 0 ? [for ip in var.jumphost_ipv4 : "${ip}/32"] : [var.allowed_ssh_cidr]
+    }
   }
-  inbound {
-    label    = "jump-host-ping"
-    action   = "ACCEPT"
-    protocol = "ICMP"
-    ipv4     = [ var.allowed_ssh_cidr ]
+
+  # Allow ICMP from jumphost (if enabled) or from allowed_ssh_cidr (legacy/fallback)
+  dynamic "inbound" {
+    for_each = length(var.jumphost_ipv4) > 0 || var.allowed_ssh_cidr != "" ? [1] : []
+    content {
+      label    = length(var.jumphost_ipv4) > 0 ? "jumphost-ping-only" : "direct-ping-access"
+      action   = "ACCEPT"
+      protocol = "ICMP"
+      ipv4     = length(var.jumphost_ipv4) > 0 ? [for ip in var.jumphost_ipv4 : "${ip}/32"] : [var.allowed_ssh_cidr]
+    }
   }
 
   linodes = var.linode_id

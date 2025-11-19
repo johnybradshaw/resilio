@@ -4,8 +4,10 @@ A production-ready Terraform solution for deploying Resilio Sync on Linode acros
 
 ## ✨ Features
 
+- **Secure Jumphost Architecture**: Hardened bastion host with fail2ban and minimal attack surface
+- **Zero-Trust Network Access**: Resilio VMs only accessible via jumphost - no direct SSH access
 - **Multi-Region Deployment**: Deploy across multiple Linode regions with automatic cross-region synchronization
-- **Secure by Default**: Firewall-protected instances with configurable SSH access control
+- **Defense in Depth**: Multi-layer firewall rules with default-deny policies
 - **Automated DNS Management**: Automatic A and AAAA record creation with Linode DNS
 - **Block Storage**: Persistent volumes with encryption support and lifecycle protection
 - **Cloud-Init Bootstrap**: Automated instance configuration with Ubuntu Pro hardening
@@ -47,11 +49,16 @@ tld                    = "example.com"
 ubuntu_advantage_token = "your-ubuntu-pro-token"  # Optional but recommended
 ```
 
-**Security tip:**
+**Security configuration:**
 ```hcl
-# Set this to your IP for better security!
+# Enable secure jumphost (HIGHLY RECOMMENDED)
+enable_jumphost = true
+
+# Restrict jumphost access to your IP only
 allowed_ssh_cidr = "YOUR_IP/32"  # Default: "0.0.0.0/0" allows all
 ```
+
+**Architecture:** When jumphost is enabled, Resilio VMs are completely isolated - only the jumphost can SSH to them. You SSH to the jumphost, then from there to Resilio VMs.
 
 ### 3. (Optional) Configure Remote State Backend
 
@@ -172,23 +179,53 @@ Configure these at your registrar:
 | `domain_id` | Linode DNS domain ID |
 | `dns_nameservers` | Nameservers to configure at registrar |
 
-## 🔐 Security Features
+## 🔐 Security Architecture
 
-### Firewall Rules
+### Jumphost-Based Access (Default)
 
-- **Inbound Policy**: DROP (default deny)
-- **SSH Access**: Restricted to `allowed_ssh_cidr` (ports 22, 2022)
-- **Inter-Instance**: Full mesh connectivity between instances
-- **ICMP**: Allowed from `allowed_ssh_cidr`
+This infrastructure implements a **defense-in-depth** security model using a hardened jumphost (bastion):
+
+```
+Internet → Your IP → Jumphost → Resilio VMs
+                      ↓
+                 fail2ban
+                 firewall
+                 hardened
+```
+
+**Key Security Features:**
+- **Zero Direct Access**: Resilio VMs have NO direct SSH access from internet
+- **Single Entry Point**: Only jumphost accepts external SSH (from your IP only)
+- **Hardened Bastion**: Minimal jumphost with fail2ban, auto-updates, SSH hardening
+- **Defense in Depth**: Multiple firewall layers protecting infrastructure
+
+### Jumphost Security Hardening
+
+The jumphost is intentionally minimal and locked down:
+- **Fail2ban**: Auto-bans after 3 failed SSH attempts (1 hour)
+- **SSH Hardening**: Key-only auth, no passwords, rate limiting
+- **Auto-Updates**: Unattended security patches
+- **Minimal Software**: Only SSH and security tools installed
+- **Instance Size**: Smallest Linode (g6-nanode-1) for minimal attack surface
+- **Logging**: All access attempts logged
+- **Connection Banner**: Warning banner on login
+
+### Resilio VM Firewall Rules
+
+**Inbound Policy**: DROP (default deny)
+- **SSH Access**: Only from jumphost IP (when enabled)
+- **Inter-VM**: Full TCP/UDP/ICMP mesh between Resilio instances
+- **External**: All other inbound traffic BLOCKED
 - **Outbound**: ACCEPT (all allowed)
 
-### Hardening
+### Additional Hardening
 
-- Ubuntu Pro with security patches (when token provided)
-- Automatic backups enabled
-- Volume lifecycle protection
+- Ubuntu Pro with CVE patches (when token provided)
+- Automatic backups enabled on all instances
+- Volume lifecycle protection (prevent accidental deletion)
 - Sensitive outputs properly marked
 - Cloud-init based provisioning
+- SSH key authentication only (no passwords)
 
 ## 🛠️ Development Workflow
 
@@ -294,6 +331,16 @@ Apply changes:
 ```bash
 terraform apply
 ```
+
+### Disable Jumphost (Not Recommended for Production)
+
+If you need direct SSH access (e.g., development):
+
+```hcl
+enable_jumphost = false
+```
+
+**Warning**: This exposes Resilio VMs directly to the internet. Only use for non-production environments.
 
 ## 🔄 Upgrade Guide
 
