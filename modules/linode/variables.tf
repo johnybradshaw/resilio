@@ -52,3 +52,8 @@ variable "tags" {
   type        = list(string)
   default     = ["deployment: terraform", "app: resilio"]
 }
+
+variable "admin_username" {
+  description = "Non-root admin username for SSH access with sudo privileges"
+  type        = string
+}

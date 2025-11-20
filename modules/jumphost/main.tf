@@ -20,6 +20,7 @@ resource "linode_instance" "jumphost" {
     user_data = base64encode(templatefile("${path.module}/jumphost-init.tpl", {
       ssh_public_key = var.ssh_public_key
       hostname       = "${var.project_name}-jumphost"
+      admin_username = var.admin_username
     }))
   }
 }

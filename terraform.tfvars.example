@@ -68,6 +68,12 @@ jumphost_region = ""
 # Default: "0.0.0.0/0" (allows all - NOT RECOMMENDED for production)
 allowed_ssh_cidr = "0.0.0.0/0"  # Change to "YOUR_IP/32" for security
 
+# Non-root admin username for SSH access with passwordless sudo
+# This user will be created on all instances (jumphost and Resilio VMs)
+# Must be lowercase, start with letter/underscore, cannot be 'root'
+# Default: "admin"
+admin_username = "admin"
+
 # ============================================================================
 # Resource Tagging
 # ============================================================================

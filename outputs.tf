@@ -55,10 +55,10 @@ output "ssh_connection_strings" {
   description = "SSH connection strings for easy access to instances"
   value = var.enable_jumphost ? {
     for region, instance in module.linode_instances : region =>
-      "ssh -J root@${tolist(module.jumphost[0].jumphost_ipv4)[0]} root@${tolist(instance.ipv4_address)[0]}"
+      "ssh -J ${var.admin_username}@${tolist(module.jumphost[0].jumphost_ipv4)[0]} ${var.admin_username}@${tolist(instance.ipv4_address)[0]}"
   } : {
     for region, instance in module.linode_instances : region =>
-      "ssh root@${tolist(instance.ipv4_address)[0]}"
+      "ssh ${var.admin_username}@${tolist(instance.ipv4_address)[0]}"
   }
 }
 
@@ -70,7 +70,7 @@ output "jumphost_ip" {
 
 output "jumphost_connection" {
   description = "SSH connection string for jumphost"
-  value       = var.enable_jumphost ? "ssh root@${tolist(module.jumphost[0].jumphost_ipv4)[0]}" : "Jumphost disabled"
+  value       = var.enable_jumphost ? "ssh ${var.admin_username}@${tolist(module.jumphost[0].jumphost_ipv4)[0]}" : "Jumphost disabled"
 }
 
 output "jumphost_password" {

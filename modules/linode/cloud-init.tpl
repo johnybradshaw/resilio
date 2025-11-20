@@ -104,11 +104,12 @@ packages:
 
 # User Management
 users:
-  # Cloud user
-  - name: ac-user
+  # Admin user with sudo privileges
+  - name: ${admin_username}
     groups: [sudo, users, admin, sshusers]
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
+    lock_passwd: true
     ssh_authorized_keys:
       - "${ssh_public_key}"
 groups:

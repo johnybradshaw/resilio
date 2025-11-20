@@ -23,6 +23,7 @@ resource "linode_instance" "resilio" {
       tld = var.tld
       ubuntu_advantage_token = var.ubuntu_advantage_token
       mount_point = "/mnt/resilio-data"
+      admin_username = var.admin_username
     })
     )
   }

@@ -16,16 +16,24 @@ packages:
   - unattended-upgrades # Automatic security updates
   - apt-listchanges   # Track package changes
   - needrestart       # Detect services needing restart
+  - sudo              # Sudo access
 
 # SSH hardening
 ssh_deletekeys: true
 ssh_genkeytypes: [rsa, ecdsa, ed25519]
 
+# Create non-root admin user with sudo access
 users:
-  - name: root
+  - name: ${admin_username}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
     lock_passwd: true
     ssh_authorized_keys:
       - ${ssh_public_key}
+  - name: root
+    lock_passwd: true
+    # Root SSH login disabled via sshd_config
 
 # Fail2ban configuration for SSH protection
 write_files:
@@ -45,7 +53,7 @@ write_files:
   - path: /etc/ssh/sshd_config.d/99-hardening.conf
     content: |
       # SSH Hardening Configuration
-      PermitRootLogin prohibit-password
+      PermitRootLogin no
       PasswordAuthentication no
       ChallengeResponseAuthentication no
       PubkeyAuthentication yes
@@ -101,16 +109,29 @@ write_files:
 
       This jumphost provides secure access to Resilio Sync instances.
 
+      Logged in as: ${admin_username}
+
       Security Features:
-        ✓ SSH key authentication only
+        ✓ SSH key authentication only (no passwords)
+        ✓ Root login disabled
         ✓ Fail2ban active (3 failed attempts = 1h ban)
         ✓ Automatic security updates enabled
         ✓ All connections logged
+        ✓ Passwordless sudo available
 
       Usage:
-        ssh -J root@THIS_HOST root@resilio-instance
+        ssh -J ${admin_username}@THIS_HOST ${admin_username}@resilio-instance
+
+      Sudo usage:
+        sudo <command>  # No password required for ${admin_username}
 
     permissions: '0644'
+
+  - path: /etc/sudoers.d/90-cloud-init-users
+    content: |
+      # Created by cloud-init - allow ${admin_username} passwordless sudo
+      ${admin_username} ALL=(ALL) NOPASSWD:ALL
+    permissions: '0440'
 
 # System hardening
 bootcmd:

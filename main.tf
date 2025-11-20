@@ -30,6 +30,7 @@ module "jumphost" {
   ssh_public_key   = var.ssh_public_key
   allowed_ssh_cidr = var.allowed_ssh_cidr
   project_name     = var.project_name
+  admin_username   = var.admin_username
   tags             = local.tags
 }
 
@@ -40,13 +41,14 @@ module "linode_instances" {
   
   region             = each.key # "us-east"
   instance_type      = var.instance_type # "g6-standard-2"
-  ssh_public_key     = var.ssh_public_key 
+  ssh_public_key     = var.ssh_public_key
   project_name       = var.project_name # "resilio-sync"
   resilio_folder_key = var.resilio_folder_key
   resilio_license_key = var.resilio_license_key
   ubuntu_advantage_token = var.ubuntu_advantage_token
   tld = var.tld
-  
+  admin_username = var.admin_username
+
   volume_id = module.storage_volumes[each.key].volume_id
   
   tags = local.tags # Concat tags and tld

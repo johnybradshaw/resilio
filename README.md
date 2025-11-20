@@ -56,9 +56,12 @@ enable_jumphost = true
 
 # Restrict jumphost access to your IP only
 allowed_ssh_cidr = "YOUR_IP/32"  # Default: "0.0.0.0/0" allows all
+
+# Non-root admin username (for SSH with passwordless sudo)
+admin_username = "admin"  # Default: "admin"
 ```
 
-**Architecture:** When jumphost is enabled, Resilio VMs are completely isolated - only the jumphost can SSH to them. You SSH to the jumphost, then from there to Resilio VMs.
+**Architecture:** When jumphost is enabled, Resilio VMs are completely isolated - only the jumphost can SSH to them. You SSH to the jumphost, then from there to Resilio VMs. All instances use non-root admin user with passwordless sudo for better security.
 
 ### 3. (Optional) Configure Remote State Backend
 
@@ -117,6 +120,12 @@ Configure these at your registrar:
 │   │   ├── outputs.tf
 │   │   ├── README.md
 │   │   └── cloud-init.tpl
+│   ├── jumphost/                # Secure jumphost/bastion module
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   ├── outputs.tf
+│   │   ├── README.md
+│   │   └── jumphost-init.tpl
 │   ├── volume/                  # Block storage module
 │   │   ├── main.tf
 │   │   ├── variables.tf
@@ -156,7 +165,10 @@ Configure these at your registrar:
 | `instance_type` | Linode instance type | `string` | `"g6-standard-1"` | - |
 | `volume_size` | Storage volume size (GB) | `number` | `20` | 10-10000 GB |
 | `project_name` | Resource name prefix | `string` | `"resilio-sync"` | - |
+| `admin_username` | Non-root admin user with sudo | `string` | `"admin"` | Lowercase, not 'root' |
 | `allowed_ssh_cidr` | CIDR for SSH access | `string` | `"0.0.0.0/0"` | Valid CIDR |
+| `enable_jumphost` | Enable secure jumphost | `bool` | `true` | - |
+| `jumphost_region` | Jumphost region | `string` | `""` (first region) | - |
 | `tags` | Resource tags | `list(string)` | `["deployment: terraform", "app: resilio"]` | - |
 
 ## 📤 Outputs
@@ -167,8 +179,8 @@ Configure these at your registrar:
 |--------|-------------|
 | `instance_ips` | Map of region → `{ ipv4, ipv6, fqdn }` |
 | `instance_ids` | Map of region → instance ID |
-| `ssh_connection_strings` | Ready-to-use SSH commands |
-| `root_passwords` | Root passwords (sensitive, use `terraform output -raw root_passwords`) |
+| `ssh_connection_strings` | Ready-to-use SSH commands with admin user |
+| `root_passwords` | Root passwords for emergency console access (SSH root login disabled) |
 
 ### Infrastructure Resources
 
@@ -202,6 +214,7 @@ Internet → Your IP → Jumphost → Resilio VMs
 ### Jumphost Security Hardening
 
 The jumphost is intentionally minimal and locked down:
+- **Non-Root Access**: SSH root login disabled, admin user with passwordless sudo
 - **Fail2ban**: Auto-bans after 3 failed SSH attempts (1 hour)
 - **SSH Hardening**: Key-only auth, no passwords, rate limiting
 - **Auto-Updates**: Unattended security patches
@@ -220,6 +233,8 @@ The jumphost is intentionally minimal and locked down:
 
 ### Additional Hardening
 
+- Non-root admin user with passwordless sudo on all instances
+- SSH root login disabled (root password only for emergency console access)
 - Ubuntu Pro with CVE patches (when token provided)
 - Automatic backups enabled on all instances
 - Volume lifecycle protection (prevent accidental deletion)
@@ -301,11 +316,17 @@ terraform output -json root_passwords | jq '.["us-east"]'
 ### SSH into Instance
 
 ```bash
-# Get connection string
+# Get connection strings (includes ProxyJump config when jumphost enabled)
 terraform output ssh_connection_strings
 
-# Or connect directly
-ssh root@$(terraform output -json instance_ips | jq -r '.["us-east"].ipv4')
+# With jumphost (recommended):
+# ssh -J admin@<jumphost-ip> admin@<resilio-vm-ip>
+
+# Without jumphost (direct access):
+# ssh admin@<resilio-vm-ip>
+
+# Use sudo for privileged commands:
+# ssh admin@<instance-ip> 'sudo systemctl status resilio-sync'
 ```
 
 ### Add/Remove Regions
@@ -389,6 +410,7 @@ terraform init -upgrade
 Each module has detailed documentation:
 
 - [Linode Instance Module](modules/linode/README.md)
+- [Jumphost Module](modules/jumphost/README.md)
 - [Volume Module](modules/volume/README.md)
 - [Firewall Module](modules/firewall/README.md)
 - [DNS Module](modules/dns/README.md)

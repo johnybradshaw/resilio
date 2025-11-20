@@ -30,3 +30,8 @@ variable "tags" {
   type        = list(string)
   default     = []
 }
+
+variable "admin_username" {
+  description = "Non-root admin username for SSH access with sudo privileges"
+  type        = string
+}

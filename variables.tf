@@ -33,6 +33,17 @@ variable "ssh_public_key" {
   type        = string
 }
 
+variable "admin_username" {
+  description = "Non-root admin username for SSH access with sudo privileges"
+  type        = string
+  default     = "admin"
+
+  validation {
+    condition     = can(regex("^[a-z_][a-z0-9_-]*$", var.admin_username)) && var.admin_username != "root"
+    error_message = "Admin username must be lowercase, start with a letter or underscore, and cannot be 'root'."
+  }
+}
+
 variable "instance_type" {
   description = "Linode instance type"
   type        = string
