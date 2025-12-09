@@ -35,15 +35,15 @@ terraform {
   required_providers {
     linode = {
       source  = "linode/linode"
-      version = "~> 3.5"
+      version = "~> 3.6"
     }
     random = {
       source  = "hashicorp/random"
-      version = ">= 3.7.1"
+      version = "~> 3.7"
     }
     http = {
       source  = "hashicorp/http"
-      version = ">= 3.4.0"
+      version = "~> 3.5"
     }
   }
   required_version = ">= 1.5.0"
