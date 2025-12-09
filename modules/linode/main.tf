@@ -70,10 +70,15 @@ resource "linode_instance_config" "resilio" {
     volume_id   = var.volume_id
   }
 
+  # Network interface - required in provider 3.x
+  interface {
+    purpose = "public"
+  }
+
   root_device = "/dev/sda"
   kernel      = "linode/grub2" # To support AppArmor etc
   booted      = true
-  lifecycle { 
+  lifecycle {
     # Ignore changes to booted after initial creation
     ignore_changes = [booted]
   }
