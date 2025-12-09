@@ -13,6 +13,13 @@ resource "linode_domain" "resilio" {
   domain = var.tld
   soa_email = "admin@${var.tld}"
   tags = [ "terraform", "dns", var.project_name ]
+
+  lifecycle {
+    # If domain already exists in Linode DNS, import it instead of creating
+    # To import: terraform import module.dns.linode_domain.resilio <domain_id>
+    # To find domain_id: linode-cli domains list
+    prevent_destroy = true
+  }
 }
 
 resource "linode_domain_record" "resilio_A" {
