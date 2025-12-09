@@ -24,6 +24,8 @@ A production-ready Terraform solution for deploying Resilio Sync on Linode acros
 
 ## 🚀 Quick Start
 
+> **First time setting up?** See the detailed [Setup Guide](docs/SETUP.md) for comprehensive instructions.
+
 ### 1. Clone and Configure
 
 ```bash
@@ -379,9 +381,15 @@ Each module has detailed documentation:
 
 ### Additional Documentation
 
+- [Setup Guide](docs/SETUP.md) - Complete first-time setup and configuration guide
 - [Backend Setup Guide](docs/BACKEND_SETUP.md) - Configure Linode Object Storage backend with 1Password
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Resolve common issues and errors
-- [Scripts Documentation](scripts/) - Helper scripts for setup and maintenance
+
+### Helper Scripts
+
+- `scripts/setup-backend-credentials.sh` - Load backend credentials from 1Password
+- `scripts/fix-provider-lock.sh` - Fix provider lock file issues
+- `scripts/regenerate-lockfile.sh` - Regenerate lock file after provider updates
 
 ## 🤝 Contributing
 
