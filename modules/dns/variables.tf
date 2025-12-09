@@ -5,6 +5,12 @@ variable "tld" {
   type = string
 }
 
+variable "create_domain" {
+  description = "Whether to create the domain or use an existing one. Set to false if domain already exists in Linode DNS."
+  type        = bool
+  default     = true
+}
+
 variable "linode_label" {
   description = "Linode instance labels"
   type        = list(string)

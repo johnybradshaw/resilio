@@ -72,6 +72,12 @@ variable "tld" {
   }
 }
 
+variable "create_domain" {
+  description = "Whether to create the domain in Linode DNS or use an existing one. Set to false if domain already exists."
+  type        = bool
+  default     = false  # Default to false since most users will have existing domains
+}
+
 variable "tags" {
   description = "Set of tags to apply to all resources"
   type        = list(string)

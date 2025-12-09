@@ -91,6 +91,7 @@ module "dns" {
   ])
 
   tld = var.tld
+  create_domain = var.create_domain
   project_name = var.project_name
   tags = local.tags # Concat tags and tld
 }
