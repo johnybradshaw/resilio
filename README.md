@@ -14,12 +14,13 @@ A production-ready Terraform solution for deploying Resilio Sync on Linode acros
 
 ## 📋 Prerequisites
 
-- **Terraform** ~> 1.10 (minimum 1.0.0)
+- **Terraform** >= 1.5.0
 - **Linode API Token** with full permissions
 - **SSH Public Key** for instance access
 - **Resilio Sync** folder key and license key
 - **Domain Name** for DNS management
 - (Optional) **Ubuntu Advantage** token for Ubuntu Pro features
+- (Optional) **1Password CLI** for secure backend credential management
 
 ## 🚀 Quick Start
 
@@ -55,10 +56,25 @@ allowed_ssh_cidr = "YOUR_IP/32"  # Default: "0.0.0.0/0" allows all
 
 ### 3. (Optional) Configure Remote State Backend
 
+**Option 1: Linode Object Storage (Recommended)**
+
+See [docs/BACKEND_SETUP.md](docs/BACKEND_SETUP.md) for detailed instructions on setting up Linode Object Storage backend with 1Password encryption.
+
+Quick setup:
+```bash
+# Set up credentials in 1Password
+# Uncomment backend block in provider.tf
+# Load credentials and initialize
+source scripts/setup-backend-credentials.sh
+terraform init
+```
+
+**Option 2: Other Backends**
+
 ```bash
 cp backend.tf.example backend.tf
 # Edit backend.tf and uncomment your preferred backend
-# Options: S3, Terraform Cloud, GCS, Azure Blob Storage
+# Options: Terraform Cloud, GCS, Azure Blob Storage
 ```
 
 ### 4. Initialize and Deploy
@@ -315,15 +331,24 @@ Or allow Terraform to recreate them (brief DNS interruption).
 
 ## 🐛 Troubleshooting
 
+For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+
 ### Init Fails with Provider Version
 
+**Quick Fix:**
 ```bash
-# Clear provider cache
-rm -rf .terraform .terraform.lock.hcl
+# Automated fix
+bash scripts/fix-provider-lock.sh
 
-# Re-initialize
+# OR manually
+rm -rf .terraform .terraform.lock.hcl
 terraform init -upgrade
 ```
+
+**Common Errors:**
+- `locked provider does not match configured version constraint` → Run `bash scripts/fix-provider-lock.sh`
+- `Unsupported Terraform Core version` → Upgrade Terraform to >= 1.5.0
+- `provider registry does not have a provider named hashicorp/linode` → Run `bash scripts/fix-provider-lock.sh --clean`
 
 ### DNS Not Resolving
 
@@ -337,7 +362,13 @@ terraform init -upgrade
 2. Verify instance is running: `linode-cli linodes list`
 3. Check cloud-init completed: Review Linode console
 
-## 📚 Module Documentation
+### Backend/State Issues
+
+See [docs/BACKEND_SETUP.md](docs/BACKEND_SETUP.md) for backend-specific troubleshooting.
+
+## 📚 Documentation
+
+### Module Documentation
 
 Each module has detailed documentation:
 
@@ -345,6 +376,12 @@ Each module has detailed documentation:
 - [Volume Module](modules/volume/README.md)
 - [Firewall Module](modules/firewall/README.md)
 - [DNS Module](modules/dns/README.md)
+
+### Additional Documentation
+
+- [Backend Setup Guide](docs/BACKEND_SETUP.md) - Configure Linode Object Storage backend with 1Password
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Resolve common issues and errors
+- [Scripts Documentation](scripts/) - Helper scripts for setup and maintenance
 
 ## 🤝 Contributing
 
