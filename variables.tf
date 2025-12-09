@@ -67,8 +67,8 @@ variable "tld" {
   type = string
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]\\.[a-z]{2,}$", var.tld))
-    error_message = "TLD must be a valid domain name (e.g., 'example.com')."
+    condition     = can(regex("^([a-z0-9][a-z0-9-]{0,61}[a-z0-9]\\.)+[a-z]{2,}$", var.tld))
+    error_message = "TLD must be a valid domain name (e.g., 'example.com' or 'subdomain.example.com')."
   }
 }
 
