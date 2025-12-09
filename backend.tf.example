@@ -10,7 +10,56 @@
 # Add 'backend.tf' to .gitignore if it contains sensitive values.
 
 # ============================================================================
-# Option 1: AWS S3 Backend with DynamoDB Locking (Recommended for AWS users)
+# Option 1: Linode Object Storage Backend (Recommended - S3-compatible)
+# ============================================================================
+# Features:
+# - S3-compatible object storage from Linode
+# - State encryption support
+# - Cost-effective and simple setup
+# - Integrates with 1Password for credential management
+# - No state locking (coordinate through CI/CD)
+#
+# Setup steps:
+# 1. See detailed guide: docs/BACKEND_SETUP.md
+# 2. Create bucket in Linode Cloud Manager
+# 3. Generate access keys
+# 4. Store credentials in 1Password
+# 5. Load credentials: source scripts/setup-backend-credentials.sh
+# 6. Uncomment configuration below
+# 7. Run: terraform init
+#
+# terraform {
+#   backend "s3" {
+#     bucket = "terraform-state-resilio"
+#     key    = "resilio/terraform.tfstate"
+#     region = "us-east-1"
+#
+#     # Linode Object Storage endpoint
+#     endpoint = "https://us-east-1.linodeobjects.com"
+#
+#     # S3-compatible settings for Linode
+#     skip_credentials_validation = true
+#     skip_metadata_api_check     = true
+#     skip_region_validation      = true
+#     skip_requesting_account_id  = true
+#     force_path_style            = true
+#
+#     # Enable encryption
+#     encrypt = true
+#
+#     # Credentials via environment variables (from 1Password):
+#     # export AWS_ACCESS_KEY_ID=$(op read "op://Infrastructure/linode-object-storage/access_key_id")
+#     # export AWS_SECRET_ACCESS_KEY=$(op read "op://Infrastructure/linode-object-storage/secret_access_key")
+#   }
+# }
+#
+# Alternative: Use backend.tfvars for configuration
+# 1. Copy: cp backend.tfvars.example backend.tfvars
+# 2. Edit backend.tfvars with your values
+# 3. Initialize: terraform init -backend-config=backend.tfvars
+
+# ============================================================================
+# Option 2: AWS S3 Backend with DynamoDB Locking (For AWS users)
 # ============================================================================
 # Features:
 # - State versioning and encryption
@@ -36,7 +85,7 @@
 # }
 
 # ============================================================================
-# Option 2: Terraform Cloud (Recommended for teams, free tier available)
+# Option 3: Terraform Cloud (Recommended for teams, free tier available)
 # ============================================================================
 # Features:
 # - Free for small teams (up to 5 users)
@@ -61,7 +110,7 @@
 # }
 
 # ============================================================================
-# Option 3: Google Cloud Storage (GCS) Backend
+# Option 4: Google Cloud Storage (GCS) Backend
 # ============================================================================
 # Features:
 # - State versioning and encryption
@@ -83,7 +132,7 @@
 # }
 
 # ============================================================================
-# Option 4: Azure Blob Storage Backend
+# Option 5: Azure Blob Storage Backend
 # ============================================================================
 # Features:
 # - State versioning and encryption
@@ -105,7 +154,7 @@
 # }
 
 # ============================================================================
-# Option 5: HTTP Backend (Generic, for custom solutions)
+# Option 6: HTTP Backend (Generic, for custom solutions)
 # ============================================================================
 # Features:
 # - Works with any HTTP-based state storage (GitLab, Artifactory, etc.)
@@ -124,7 +173,7 @@
 # }
 
 # ============================================================================
-# Option 6: Terraform Enterprise (For large organizations)
+# Option 7: Terraform Enterprise (For large organizations)
 # ============================================================================
 # Features:
 # - Self-hosted Terraform Cloud
