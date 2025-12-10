@@ -52,3 +52,8 @@ variable "tags" {
   type        = list(string)
   default     = ["deployment: terraform", "app: resilio"]
 }
+
+variable "firewall_id" {
+  description = "ID of the firewall to attach to this instance"
+  type        = string
+}

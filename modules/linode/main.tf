@@ -1,5 +1,22 @@
 # modules/linode/main.tf
-locals {   label = "${var.project_name}.${var.region}" } # e.g. "resilio-sync.us-east"
+
+# Generate a unique identifier for this instance
+resource "random_id" "instance" {
+  byte_length = 4
+
+  keepers = {
+    # Regenerate if project name or region changes
+    project_name = var.project_name
+    region       = var.region
+  }
+}
+
+locals {
+  # Label format: resilio-sync-us-east-a1b2c3d4
+  # Uses hyphens (required) and adds unique suffix to avoid conflicts
+  label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
+}
+
 resource "linode_instance" "resilio" {
   label            = local.label
   region           = var.region
@@ -11,7 +28,10 @@ resource "linode_instance" "resilio" {
     ]
   )
   backups_enabled = true # Disable backups ([optional] and not available to managed customers)
-  
+  interface_generation = "legacy_config" # Force legacy networking; new interfaces API returns 404 on some accounts
+  firewall_id = var.firewall_id  # Attach firewall during instance creation
+  # Don't set booted - let it default, config will control boot
+
   # Apply user data (cloud-init)
   metadata { # Requires base64encoding or errors
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
@@ -70,10 +90,16 @@ resource "linode_instance_config" "resilio" {
     volume_id   = var.volume_id
   }
 
+  # Use legacy interface block to provision the default public NIC before boot
+  # interfaces {
+  #   purpose = "public"
+  #   primary = true
+  # }
+
   root_device = "/dev/sda"
   kernel      = "linode/grub2" # To support AppArmor etc
   booted      = true
-  lifecycle { 
+  lifecycle {
     # Ignore changes to booted after initial creation
     ignore_changes = [booted]
   }

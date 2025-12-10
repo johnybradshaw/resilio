@@ -1,0 +1,36 @@
+# backend.tfvars.example
+#
+# Example backend configuration for Linode Object Storage
+# Copy this file and customize it for your environment
+#
+# Usage:
+#   1. Copy: cp backend.tfvars.example backend.tfvars
+#   2. Edit backend.tfvars with your values
+#   3. Uncomment the backend block in provider.tf
+#   4. Load credentials: source scripts/setup-backend-credentials.sh
+#   5. Initialize: terraform init -backend-config=backend.tfvars
+#
+# Note: backend.tfvars is in .gitignore to prevent accidental commits
+
+# Bucket Configuration
+bucket = "terraform-state-resilio"
+key    = "resilio/terraform.tfstate"
+region = "us-east-1"
+
+# Linode Object Storage Endpoint
+# Available regions:
+#   us-east-1: https://us-east-1.linodeobjects.com
+#   us-southeast-1: https://us-southeast-1.linodeobjects.com
+#   eu-central-1: https://eu-central-1.linodeobjects.com
+#   ap-south-1: https://ap-south-1.linodeobjects.com
+endpoint = "https://us-east-1.linodeobjects.com"
+
+# S3-compatible settings for Linode
+skip_credentials_validation = true
+skip_metadata_api_check     = true
+skip_region_validation      = true
+skip_requesting_account_id  = true
+force_path_style            = true
+
+# Encryption
+encrypt = true

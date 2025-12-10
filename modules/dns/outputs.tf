@@ -1,8 +1,8 @@
 # modules/dns/outputs.tf
 
 output "domain_id" {
-  description = "ID of the created domain"
-  value       = linode_domain.resilio.id
+  description = "ID of the domain (created or existing)"
+  value       = var.create_domain ? linode_domain.resilio[0].id : data.linode_domain.existing[0].id
 }
 
 output "nameservers" {
@@ -18,7 +18,7 @@ output "nameservers" {
 
 output "domain_name" {
   description = "The domain name"
-  value       = linode_domain.resilio.domain
+  value       = var.tld
 }
 
 output "dns_records" {

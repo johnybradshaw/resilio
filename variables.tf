@@ -67,9 +67,15 @@ variable "tld" {
   type = string
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]\\.[a-z]{2,}$", var.tld))
-    error_message = "TLD must be a valid domain name (e.g., 'example.com')."
+    condition     = can(regex("^([a-z0-9][a-z0-9-]{0,61}[a-z0-9]\\.)+[a-z]{2,}$", var.tld))
+    error_message = "TLD must be a valid domain name (e.g., 'example.com' or 'subdomain.example.com')."
   }
+}
+
+variable "create_domain" {
+  description = "Whether to create the domain in Linode DNS or use an existing one. Set to false if domain already exists."
+  type        = bool
+  default     = false  # Default to false since most users will have existing domains
 }
 
 variable "tags" {
