@@ -57,14 +57,14 @@ module "firewall" {
   ]
 
   # Collect instance IPv4 and IPv6 addresses
-  linode_ipv4 = flatten([
+  linode_ipv4 = [
     for inst in values(module.linode_instances) :
-    inst.ipv4_address
-  ])
-  linode_ipv6 = flatten([
+    one(inst.ipv4_address)  # Extract single IP from set
+  ]
+  linode_ipv6 = [
     for inst in values(module.linode_instances) :
-    inst.ipv6_address
-  ])
+    inst.ipv6_address  # Already a string
+  ]
 
   project_name = var.project_name
   allowed_ssh_cidr = var.allowed_ssh_cidr
