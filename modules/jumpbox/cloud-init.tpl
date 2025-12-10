@@ -23,6 +23,7 @@ users:
 # Update and upgrade packages
 package_update: true
 package_upgrade: true
+package_reboot_if_required: true
 
 # Install essential packages
 packages:
@@ -65,5 +66,12 @@ runcmd:
 
   # Set hostname
   - hostnamectl set-hostname jumpbox
+
+# Reboot after initial setup to ensure all updates are applied
+power_state:
+  delay: now
+  mode: reboot
+  message: "Rebooting after initial setup and package upgrades"
+  condition: true
 
 final_message: "Jumpbox is ready! SSH as ac-user"
