@@ -77,8 +77,8 @@ module "dns" {
   # Map of DNS records keyed by region (static, known at plan time)
   dns_records = {
     for region, inst in module.linode_instances : region => {
-      ipv4 = inst.ipv4_address[0]
-      ipv6 = inst.ipv6_address[0]
+      ipv4 = one(inst.ipv4_address)  # Extract single IP from set
+      ipv6 = inst.ipv6_address        # Already a string
     }
   }
 
