@@ -64,3 +64,8 @@ output "allowed_ssh_cidr" {
   description = "CIDR block allowed for SSH access (shows auto-detected IP if not manually set)"
   value       = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
 }
+
+output "next_steps" {
+  description = "Important next steps after deployment"
+  value       = "⚠️  IMPORTANT: Run 'bash scripts/update-firewall-rules.sh' to configure inter-instance firewall rules"
+}

@@ -32,14 +32,16 @@ module "storage_volumes" {
 module "firewall" {
   source = "./modules/firewall"
 
-  # Pass instance IPs for inter-instance communication rules
-  # Terraform will handle the dependency graph and update firewall after instances are created
-  linode_ipv4 = [for inst in module.linode_instances : tolist(inst.ipv4_address)[0]]
-  linode_ipv6 = [for inst in module.linode_instances : inst.ipv6_address]
+  # Note: Instance IPs cannot be passed here due to circular dependency
+  # (firewall needs IPs, but instances need firewall_id)
+  # Solution: These will be populated via outputs and can be referenced by external automation
+  # or manually added to firewall rules after initial deployment
+  linode_ipv4 = []
+  linode_ipv6 = []
 
-  # Pass jumpbox IP for jumpbox → resilio SSH access
-  jumpbox_ipv4 = module.jumpbox.ipv4_address
-  jumpbox_ipv6 = module.jumpbox.ipv6_address
+  # Jumpbox IPs also create circular dependency, so left as null
+  jumpbox_ipv4 = null
+  jumpbox_ipv6 = null
 
   project_name = var.project_name
   # Use auto-detected IP if allowed_ssh_cidr is not specified
