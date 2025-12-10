@@ -11,7 +11,8 @@ resource "linode_instance" "resilio" {
     ]
   )
   backups_enabled = true # Disable backups ([optional] and not available to managed customers)
-  
+  booted = false # Don't auto-boot - we'll boot via instance_config
+
   # Apply user data (cloud-init)
   metadata { # Requires base64encoding or errors
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
@@ -68,6 +69,11 @@ resource "linode_instance_config" "resilio" {
   device {
     device_name = "sdc" # /mnt/resilio-data
     volume_id   = var.volume_id
+  }
+
+  # Network interface - required in provider 3.x when using custom configs
+  interface {
+    purpose = "public"
   }
 
   root_device = "/dev/sda"
