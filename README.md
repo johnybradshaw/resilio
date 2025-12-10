@@ -226,6 +226,10 @@ Install pre-commit hooks for automated validation:
 ```bash
 # Install pre-commit (using pipx for isolated Python tools)
 pipx install pre-commit
+pipx install detect-secrets
+
+# On a Mac
+brew install trivy
 
 # Install hooks
 pre-commit install
