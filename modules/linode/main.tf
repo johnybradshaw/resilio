@@ -11,8 +11,8 @@ resource "linode_instance" "resilio" {
     ]
   )
   backups_enabled = true # Disable backups ([optional] and not available to managed customers)
-  booted = false # Don't auto-boot - we'll boot via instance_config
   interface_generation = "linode" # Use new interface system in provider 3.x
+  # Don't set booted - let it default, config will control boot
 
   # Apply user data (cloud-init)
   metadata { # Requires base64encoding or errors
