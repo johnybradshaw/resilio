@@ -7,7 +7,7 @@ output "domain_id" {
 
 output "nameservers" {
   description = "Nameservers for the domain (configure these at your domain registrar)"
-  value       = [
+  value = [
     "ns1.linode.com",
     "ns2.linode.com",
     "ns3.linode.com",

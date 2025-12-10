@@ -7,7 +7,7 @@ variable "region" {
 variable "instance_type" {
   description = "Linode instance type for jumpbox (smaller instance recommended)"
   type        = string
-  default     = "g6-nanode-1"  # Smallest Linode instance
+  default     = "g6-nanode-1" # Smallest Linode instance
 }
 
 variable "ssh_public_key" {

@@ -2,7 +2,7 @@
 
 variable "tld" {
   description = "Top-Level Domain (TLD)"
-  type = string
+  type        = string
 }
 
 variable "create_domain" {
@@ -26,8 +26,8 @@ variable "project_name" {
 
 variable "ttl_sec" {
   description = "TTL in seconds"
-  type = number
-  default = 60
+  type        = number
+  default     = 60
 }
 
 variable "tags" {

@@ -7,12 +7,12 @@ resource "random_password" "root" {
 
 # Jumpbox Linode instance
 resource "linode_instance" "jumpbox" {
-  label      = "${var.project_name}-jumpbox"
-  region     = var.region
-  type       = var.instance_type
-  image      = "linode/ubuntu24.04"
-  root_pass  = random_password.root.result
-  tags       = concat(
+  label     = "${var.project_name}-jumpbox"
+  region    = var.region
+  type      = var.instance_type
+  image     = "linode/ubuntu24.04"
+  root_pass = random_password.root.result
+  tags = concat(
     var.tags, [
       "region: ${var.region}",
       "service: jumpbox"
@@ -23,8 +23,8 @@ resource "linode_instance" "jumpbox" {
   firewall_id = var.firewall_id
 
   # Enable backups
-  backups_enabled = true
-
+  backups_enabled      = true
+  interface_generation = "legacy_config" # Force legacy networking; new interfaces API returns 404 on some accounts
   # Configure the instance with cloud-init
   metadata {
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {

@@ -38,13 +38,13 @@ variable "resilio_license_key" {
 
 variable "ubuntu_advantage_token" {
   description = "Ubuntu Advantage token"
-  type = string
-  sensitive = true
+  type        = string
+  sensitive   = true
 }
 
 variable "tld" {
   description = "Top-Level Domain (TLD)"
-  type = string
+  type        = string
 }
 
 variable "tags" {

@@ -47,7 +47,7 @@ output "ssh_connection_strings" {
   description = "SSH connection strings to resilio instances via jumpbox (uses ac-user with SSH key authentication)"
   value = {
     for region, instance in module.linode_instances : region =>
-      "ssh -J ac-user@${module.jumpbox.ipv4_address} ac-user@${tolist(instance.ipv4_address)[0]}"
+    "ssh -J ac-user@${module.jumpbox.ipv4_address} ac-user@${tolist(instance.ipv4_address)[0]}"
   }
 }
 

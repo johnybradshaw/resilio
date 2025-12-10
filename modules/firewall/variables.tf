@@ -25,7 +25,7 @@ variable "tags" {
 variable "allowed_ssh_cidr" {
   description = "CIDR block allowed for SSH/ping access to jumpbox (e.g., '1.2.3.4/32')"
   type        = string
-  default     = "0.0.0.0/0"  # Default allows all - should be overridden for security
+  default     = "0.0.0.0/0" # Default allows all - should be overridden for security
 }
 
 variable "jumpbox_ipv4" {

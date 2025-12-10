@@ -6,7 +6,7 @@ output "instance_id" {
 
 output "ipv4_address" {
   description = "IPv4 address of the jumpbox"
-  value       = linode_instance.jumpbox.ipv4
+  value       = one(linode_instance.jumpbox.ipv4)
 }
 
 output "ipv6_address" {
@@ -16,5 +16,5 @@ output "ipv6_address" {
 
 output "ssh_connection_string" {
   description = "SSH connection string for the jumpbox"
-  value       = "ssh ac-user@${linode_instance.jumpbox.ipv4}"
+  value       = "ssh ac-user@${one(linode_instance.jumpbox.ipv4)}"
 }
