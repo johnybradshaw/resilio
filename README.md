@@ -178,8 +178,7 @@ Configure these at your registrar:
 |--------|-------------|
 | `instance_ips` | Map of region → `{ ipv4, ipv6, fqdn }` |
 | `instance_ids` | Map of region → instance ID |
-| `ssh_connection_strings` | Ready-to-use SSH commands |
-| `root_passwords` | Root passwords (sensitive, use `terraform output -raw root_passwords`) |
+| `ssh_connection_strings` | Ready-to-use SSH commands (uses ac-user with SSH key) |
 
 ### Infrastructure Resources
 
@@ -269,24 +268,14 @@ terraform init -migrate-state
 
 ## 📝 Common Operations
 
-### View Sensitive Outputs
-
-```bash
-# View root passwords
-terraform output -json root_passwords
-
-# View specific region password
-terraform output -json root_passwords | jq '.["us-east"]'
-```
-
 ### SSH into Instance
 
 ```bash
 # Get connection string
 terraform output ssh_connection_strings
 
-# Or connect directly
-ssh root@$(terraform output -json instance_ips | jq -r '.["us-east"].ipv4')
+# Or connect directly (uses ac-user with SSH key authentication)
+ssh ac-user@$(terraform output -json instance_ips | jq -r '.["us-east"].ipv4')
 ```
 
 ### Add/Remove Regions
@@ -388,8 +377,8 @@ Each module has detailed documentation:
 ### Helper Scripts
 
 - `scripts/setup-backend-credentials.sh` - Load backend credentials from 1Password
-- `scripts/fix-provider-lock.sh` - Fix provider lock file issues
-- `scripts/regenerate-lockfile.sh` - Regenerate lock file after provider updates
+- `scripts/fix-provider-lock.sh` - Fix provider lock file issues (use --clean flag for full reset)
+- `scripts/import-existing-resources.sh` - Import existing Linode resources into Terraform state
 
 ## 🤝 Contributing
 

@@ -43,18 +43,10 @@ output "dns_nameservers" {
   value       = module.dns.nameservers
 }
 
-output "root_passwords" {
-  description = "Root passwords for instances (use 'terraform output -raw root_passwords' to view)"
-  value = {
-    for region, instance in module.linode_instances : region => instance.root_password
-  }
-  sensitive = true
-}
-
 output "ssh_connection_strings" {
-  description = "SSH connection strings for easy access to instances"
+  description = "SSH connection strings for easy access to instances (uses ac-user with SSH key authentication)"
   value = {
     for region, instance in module.linode_instances : region =>
-      "ssh root@${tolist(instance.ipv4_address)[0]}"
+      "ssh ac-user@${tolist(instance.ipv4_address)[0]}"
   }
 }
