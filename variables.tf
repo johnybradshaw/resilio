@@ -85,7 +85,7 @@ variable "tags" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed for SSH/ping access to instances (e.g., '1.2.3.4/32')"
+  description = "CIDR block allowed for SSH/ping access to jumpbox (e.g., '1.2.3.4/32')"
   type        = string
   default     = "0.0.0.0/0"  # Default allows all - override with your IP for security
 
@@ -93,4 +93,16 @@ variable "allowed_ssh_cidr" {
     condition     = can(cidrhost(var.allowed_ssh_cidr, 0))
     error_message = "Must be a valid CIDR block (e.g., '1.2.3.4/32' or '0.0.0.0/0')."
   }
+}
+
+variable "jumpbox_region" {
+  description = "Linode region for the jumpbox (bastion host)"
+  type        = string
+  default     = "us-east"
+}
+
+variable "jumpbox_instance_type" {
+  description = "Linode instance type for the jumpbox"
+  type        = string
+  default     = "g6-nanode-1"  # Smallest instance (1GB RAM, 1 vCPU) - sufficient for jumpbox
 }

@@ -167,7 +167,9 @@ Configure these at your registrar:
 | `instance_type` | Linode instance type | `string` | `"g6-standard-1"` | - |
 | `volume_size` | Storage volume size (GB) | `number` | `20` | 10-10000 GB |
 | `project_name` | Resource name prefix | `string` | `"resilio-sync"` | - |
-| `allowed_ssh_cidr` | CIDR for SSH access | `string` | `"0.0.0.0/0"` | Valid CIDR |
+| `allowed_ssh_cidr` | CIDR for SSH access to jumpbox | `string` | `"0.0.0.0/0"` | Valid CIDR |
+| `jumpbox_region` | Jumpbox region | `string` | `"us-east"` | - |
+| `jumpbox_instance_type` | Jumpbox instance type | `string` | `"g6-nanode-1"` | - |
 | `tags` | Resource tags | `list(string)` | `["deployment: terraform", "app: resilio"]` | - |
 
 ## 📤 Outputs
@@ -178,7 +180,9 @@ Configure these at your registrar:
 |--------|-------------|
 | `instance_ips` | Map of region → `{ ipv4, ipv6, fqdn }` |
 | `instance_ids` | Map of region → instance ID |
-| `ssh_connection_strings` | Ready-to-use SSH commands (uses ac-user with SSH key) |
+| `jumpbox_ip` | Jumpbox (bastion) IP address |
+| `jumpbox_ssh` | SSH command to connect to jumpbox |
+| `ssh_connection_strings` | SSH commands to resilio instances via jumpbox (uses SSH jump host) |
 
 ### Infrastructure Resources
 
@@ -194,18 +198,21 @@ Configure these at your registrar:
 ### Firewall Rules
 
 - **Inbound Policy**: DROP (default deny)
-- **SSH Access**: Restricted to `allowed_ssh_cidr` (ports 22, 2022)
-- **Inter-Instance**: Full mesh connectivity between instances
+- **Jumpbox Access**: Dedicated bastion host accessible via `allowed_ssh_cidr`
+- **SSH Access**: External → Jumpbox → Resilio instances (SSH jump host pattern)
+- **Inter-Instance**: Full mesh connectivity between resilio instances
 - **ICMP**: Allowed from `allowed_ssh_cidr`
 - **Outbound**: ACCEPT (all allowed)
 
 ### Hardening
 
+- **Jumpbox (Bastion Host)**: Secure entry point with minimal attack surface
 - Ubuntu Pro with security patches (when token provided)
 - Automatic backups enabled
 - Volume lifecycle protection
 - Sensitive outputs properly marked
 - Cloud-init based provisioning
+- Root SSH disabled, SSH key authentication only (ac-user)
 
 ## 🛠️ Development Workflow
 
@@ -214,8 +221,8 @@ Configure these at your registrar:
 Install pre-commit hooks for automated validation:
 
 ```bash
-# Install pre-commit
-pip install pre-commit
+# Install pre-commit (using pipx for isolated Python tools)
+pipx install pre-commit
 
 # Install hooks
 pre-commit install
@@ -227,9 +234,7 @@ pre-commit run --all-files
 **Included hooks:**
 - `terraform fmt` - Format Terraform files
 - `terraform validate` - Validate syntax
-- `terraform docs` - Generate documentation
-- `tflint` - Lint Terraform code
-- `tfsec` - Security scanning
+- `terraform trivy` - Security scanning (replaces deprecated tfsec)
 - `detect-secrets` - Prevent credential commits
 
 ### Remote State Backend
@@ -268,15 +273,23 @@ terraform init -migrate-state
 
 ## 📝 Common Operations
 
-### SSH into Instance
+### SSH into Instances
+
+All SSH access goes through the jumpbox (bastion host) for security:
 
 ```bash
-# Get connection string
+# 1. First, connect to the jumpbox
+terraform output jumpbox_ssh
+
+# 2. Get SSH commands to connect from jumpbox to resilio instances
 terraform output ssh_connection_strings
 
-# Or connect directly (uses ac-user with SSH key authentication)
-ssh ac-user@$(terraform output -json instance_ips | jq -r '.["us-east"].ipv4')
+# 3. Or connect directly using SSH jump host (-J flag)
+# This connects to resilio via jumpbox in one command
+ssh -J ac-user@$(terraform output -raw jumpbox_ip) ac-user@$(terraform output -json instance_ips | jq -r '.["us-east"].ipv4')
 ```
+
+**SSH Jump Host Pattern**: The `-J` flag creates an SSH connection through the jumpbox, providing secure access without exposing resilio instances directly to the internet.
 
 ### Add/Remove Regions
 

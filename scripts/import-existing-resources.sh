@@ -30,7 +30,7 @@ fi
 # Check if linode-cli is installed
 if ! command -v linode-cli &> /dev/null; then
     echo -e "${YELLOW}⚠ Warning: linode-cli is not installed${NC}"
-    echo -e "  Install: ${BLUE}pip install linode-cli${NC}"
+    echo -e "  Install: ${BLUE}pipx install linode-cli${NC}"
     echo -e "  This script can still help you, but you'll need to find IDs manually."
     echo ""
 fi

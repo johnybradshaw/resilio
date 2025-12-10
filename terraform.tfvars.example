@@ -48,11 +48,20 @@ volume_size = 100
 # Default: "resilio-sync"
 project_name = "resilio-sync"
 
-# CIDR block allowed for SSH/ping access
+# CIDR block allowed for SSH/ping access to jumpbox
 # SECURITY: Set this to your IP address for better security!
 # Find your IP: curl ifconfig.me
 # Default: "0.0.0.0/0" (allows all - NOT RECOMMENDED for production)
 allowed_ssh_cidr = "0.0.0.0/0"  # Change to "YOUR_IP/32" for security
+
+# Jumpbox (bastion host) configuration
+# The jumpbox provides secure SSH access to resilio instances
+# Default region: "us-east"
+# jumpbox_region = "us-east"
+
+# Jumpbox instance type (small instance is sufficient for bastion)
+# Default: "g6-nanode-1" (1GB RAM, 1 vCPU)
+# jumpbox_instance_type = "g6-nanode-1"
 
 # Tags to apply to all resources
 # Default: ["deployment: terraform", "app: resilio"]

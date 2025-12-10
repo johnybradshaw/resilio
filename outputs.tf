@@ -44,9 +44,19 @@ output "dns_nameservers" {
 }
 
 output "ssh_connection_strings" {
-  description = "SSH connection strings for easy access to instances (uses ac-user with SSH key authentication)"
+  description = "SSH connection strings to resilio instances via jumpbox (uses ac-user with SSH key authentication)"
   value = {
     for region, instance in module.linode_instances : region =>
-      "ssh ac-user@${tolist(instance.ipv4_address)[0]}"
+      "ssh -J ac-user@${module.jumpbox.ipv4_address} ac-user@${tolist(instance.ipv4_address)[0]}"
   }
+}
+
+output "jumpbox_ip" {
+  description = "IP address of the jumpbox (bastion host)"
+  value       = module.jumpbox.ipv4_address
+}
+
+output "jumpbox_ssh" {
+  description = "SSH connection string for the jumpbox"
+  value       = module.jumpbox.ssh_connection_string
 }

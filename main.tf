@@ -41,6 +41,18 @@ module "firewall" {
   tags = local.tags # Concat tags and tld
 }
 
+# Create jumpbox instance (bastion host for secure access)
+module "jumpbox" {
+  source = "./modules/jumpbox"
+
+  region          = var.jumpbox_region
+  instance_type   = var.jumpbox_instance_type
+  ssh_public_key  = var.ssh_public_key
+  project_name    = var.project_name
+  firewall_id     = module.firewall.firewall_id
+  tags            = local.tags
+}
+
 module "linode_instances" {
   source = "./modules/linode"
 

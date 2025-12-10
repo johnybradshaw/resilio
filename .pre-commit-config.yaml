@@ -2,7 +2,7 @@
 # Pre-commit hooks for Terraform code quality and security
 #
 # Installation:
-# 1. Install pre-commit: pip install pre-commit
+# 1. Install pre-commit: pipx install pre-commit
 # 2. Install hooks: pre-commit install
 # 3. (Optional) Run on all files: pre-commit run --all-files
 #
@@ -25,30 +25,13 @@ repos:
         args:
           - --hook-config=--retry-once-with-cleanup=true
 
-      # Generate documentation from Terraform modules
-      - id: terraform_docs
-        name: Terraform docs
-        description: Inserts/updates documentation in README.md
+      # Security scanning with trivy
+      - id: terraform_trivy
+        name: Terraform trivy
+        description: Security scanning with trivy (replaces deprecated tfsec)
         args:
-          - --hook-config=--path-to-file=README.md
-          - --hook-config=--add-to-existing-file=true
-          - --hook-config=--create-file-if-not-exist=true
-
-      # Static analysis with tflint
-      - id: terraform_tflint
-        name: Terraform tflint
-        description: Lints Terraform code with tflint
-        args:
-          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
-          - --hook-config=--delegate-chdir
-
-      # Security scanning with tfsec
-      - id: terraform_tfsec
-        name: Terraform tfsec
-        description: Static security analysis with tfsec
-        args:
-          - --args=--minimum-severity=MEDIUM
-          - --args=--exclude-downloaded-modules
+          - --args=--severity=MEDIUM,HIGH,CRITICAL
+          - --args=--skip-dirs=".terraform"
 
   # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks

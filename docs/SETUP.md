@@ -74,7 +74,8 @@ Install these tools before starting:
 
 2. **Linode CLI** (optional but recommended)
    ```bash
-   pip install linode-cli
+   # Install using pipx for isolated Python tools
+   pipx install linode-cli
    linode-cli configure
    ```
 
@@ -85,7 +86,8 @@ Install these tools before starting:
 
 4. **Pre-commit** (optional, for contributors)
    ```bash
-   pip install pre-commit
+   # Install using pipx for isolated Python tools
+   pipx install pre-commit
    pre-commit install
    ```
 
