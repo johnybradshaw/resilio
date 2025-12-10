@@ -12,6 +12,7 @@ resource "linode_instance" "resilio" {
   )
   backups_enabled = true # Disable backups ([optional] and not available to managed customers)
   booted = false # Don't auto-boot - we'll boot via instance_config
+  interface_generation = "linode" # Use new interface system in provider 3.x
 
   # Apply user data (cloud-init)
   metadata { # Requires base64encoding or errors
@@ -55,6 +56,9 @@ resource "linode_instance_disk" "resilio_tmp_disk" {
 }
 
 resource "linode_instance_config" "resilio" {
+  # Depends on interface being created first
+  depends_on = [linode_interface.public]
+
   label     = "resilio_boot_config"
   linode_id = linode_instance.resilio.id
 
@@ -71,10 +75,7 @@ resource "linode_instance_config" "resilio" {
     volume_id   = var.volume_id
   }
 
-  # Network interface - required in provider 3.x when using custom configs
-  interface {
-    purpose = "public"
-  }
+  # NO interface block - using standalone linode_interface resource instead
 
   root_device = "/dev/sda"
   kernel      = "linode/grub2" # To support AppArmor etc
@@ -82,6 +83,29 @@ resource "linode_instance_config" "resilio" {
   lifecycle {
     # Ignore changes to booted after initial creation
     ignore_changes = [booted]
+  }
+}
+
+# Public network interface - new in provider 3.x
+resource "linode_interface" "public" {
+  linode_id = linode_instance.resilio.id
+
+  public = {
+    ipv4 = {
+      addresses = [
+        {
+          address = "auto"
+          primary = true
+        }
+      ]
+    }
+    ipv6 = {
+      ranges = [
+        {
+          range = "/64"
+        }
+      ]
+    }
   }
 }
 
