@@ -1,7 +1,18 @@
 # modules/firewall/main.tf
+
+# Generate a unique identifier for this firewall
+resource "random_id" "firewall" {
+  byte_length = 4
+
+  keepers = {
+    # Regenerate if project name changes
+    project_name = var.project_name
+  }
+}
+
 # Create a Linode firewall
 resource "linode_firewall" "resilio" {
-  label = "${var.project_name}-firewall"
+  label = "${var.project_name}-firewall-${random_id.firewall.hex}"
   inbound_policy = "DROP"
   outbound_policy = "ACCEPT"
 
