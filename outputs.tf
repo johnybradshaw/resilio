@@ -65,7 +65,7 @@ output "allowed_ssh_cidr" {
   value       = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
 }
 
-output "next_steps" {
-  description = "Important next steps after deployment"
-  value       = "⚠️  IMPORTANT: Run 'bash scripts/update-firewall-rules.sh' to configure inter-instance firewall rules"
+output "firewall_configuration" {
+  description = "Firewall configuration status"
+  value       = "✅ Firewall rules automatically configured via Linode API after instance creation"
 }
