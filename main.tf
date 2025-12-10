@@ -74,21 +74,13 @@ module "firewall" {
 module "dns" {
   source = "./modules/dns"
 
-  # Collect instance labels
-  linode_label = [
-    for inst in values(module.linode_instances) :
-    inst.instance_label
-  ]
-
-  # same for IPs (only flatten if each inst.ipv4_address is itself a list)
-  linode_ipv4 = flatten([
-    for inst in values(module.linode_instances) :
-    inst.ipv4_address
-  ])
-  linode_ipv6 = flatten([
-    for inst in values(module.linode_instances) :
-    inst.ipv6_address
-  ])
+  # Map of DNS records keyed by region (static, known at plan time)
+  dns_records = {
+    for region, inst in module.linode_instances : region => {
+      ipv4 = inst.ipv4_address[0]
+      ipv6 = inst.ipv6_address[0]
+    }
+  }
 
   tld = var.tld
   create_domain = var.create_domain

@@ -11,19 +11,12 @@ variable "create_domain" {
   default     = true
 }
 
-variable "linode_label" {
-  description = "Linode instance labels"
-  type        = list(string)
-}
-
-variable "linode_ipv4" {
-  description = "Linode instance IPv4 addresses"
-  type        = list(string)
-}
-
-variable "linode_ipv6" {
-  description = "Linode instance IPv6 addresses"
-  type        = list(string)
+variable "dns_records" {
+  description = "Map of DNS records keyed by region with ipv4 and ipv6 addresses"
+  type = map(object({
+    ipv4 = string
+    ipv6 = string
+  }))
 }
 
 variable "project_name" {
