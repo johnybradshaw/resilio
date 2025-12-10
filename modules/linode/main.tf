@@ -29,6 +29,7 @@ resource "linode_instance" "resilio" {
   )
   backups_enabled = true # Disable backups ([optional] and not available to managed customers)
   interface_generation = "legacy_config" # Force legacy networking; new interfaces API returns 404 on some accounts
+  firewall_id = var.firewall_id  # Attach firewall during instance creation
   # Don't set booted - let it default, config will control boot
 
   # Apply user data (cloud-init)

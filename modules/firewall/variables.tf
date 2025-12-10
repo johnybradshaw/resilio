@@ -1,17 +1,14 @@
 # modules/firewall/variables.tf
-variable "linode_id" {
-  description = "Linode instance IDs"
-  type        = list(string)
-}
-
 variable "linode_ipv4" {
-  description = "Linode instance IPv4 addresses"
+  description = "Linode instance IPv4 addresses for inter-instance rules (optional, can be empty initially)"
   type        = list(string)
+  default     = []
 }
 
 variable "linode_ipv6" {
-  description = "Linode instance IPv6 addresses"
+  description = "Linode instance IPv6 addresses for inter-instance rules (optional, can be empty initially)"
   type        = list(string)
+  default     = []
 }
 
 variable "project_name" {

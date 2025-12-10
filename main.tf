@@ -15,59 +15,49 @@
 #         └── outputs.tf
 
 # main.tf
-module "linode_instances" {
-  source = "./modules/linode"
-  
-  for_each = toset(var.regions)
-  
-  region             = each.key # "us-east"
-  instance_type      = var.instance_type # "g6-standard-2"
-  ssh_public_key     = var.ssh_public_key 
-  project_name       = var.project_name # "resilio-sync"
-  resilio_folder_key = var.resilio_folder_key
-  resilio_license_key = var.resilio_license_key
-  ubuntu_advantage_token = var.ubuntu_advantage_token
-  tld = var.tld
-  
-  volume_id = module.storage_volumes[each.key].volume_id
-  
-  tags = local.tags # Concat tags and tld
-}
 
 # Create a data volume for each region
 module "storage_volumes" {
   source = "./modules/volume"
-  
+
   for_each = toset(var.regions) # ["us-east", "eu-west"]
-  
+
   region       = each.key
   size         = var.volume_size
   project_name = var.project_name
   tags = local.tags # Concat tags and tld
 }
 
-# Create a firewall
+# Create a firewall first (before instances)
 module "firewall" {
   source = "./modules/firewall"
 
-  # Collect instance IDs
-  linode_id   = [
-    for inst in values(module.linode_instances) :
-    inst.instance_id
-  ]
-
-  # Collect instance IPv4 and IPv6 addresses
-  linode_ipv4 = [
-    for inst in values(module.linode_instances) :
-    one(inst.ipv4_address)  # Extract single IP from set
-  ]
-  linode_ipv6 = [
-    for inst in values(module.linode_instances) :
-    inst.ipv6_address  # Already a string
-  ]
+  # Initial creation with just SSH rules - will be updated after instances are created
+  linode_ipv4 = []  # Empty initially, will be updated later
+  linode_ipv6 = []  # Empty initially, will be updated later
 
   project_name = var.project_name
   allowed_ssh_cidr = var.allowed_ssh_cidr
+  tags = local.tags # Concat tags and tld
+}
+
+module "linode_instances" {
+  source = "./modules/linode"
+
+  for_each = toset(var.regions)
+
+  region             = each.key # "us-east"
+  instance_type      = var.instance_type # "g6-standard-2"
+  ssh_public_key     = var.ssh_public_key
+  project_name       = var.project_name # "resilio-sync"
+  resilio_folder_key = var.resilio_folder_key
+  resilio_license_key = var.resilio_license_key
+  ubuntu_advantage_token = var.ubuntu_advantage_token
+  tld = var.tld
+
+  volume_id = module.storage_volumes[each.key].volume_id
+  firewall_id = module.firewall.firewall_id  # Attach firewall during creation
+
   tags = local.tags # Concat tags and tld
 }
 
