@@ -1,5 +1,22 @@
 # modules/linode/main.tf
-locals {   label = "${var.project_name}.${var.region}" } # e.g. "resilio-sync.us-east"
+
+# Generate a unique identifier for this instance
+resource "random_id" "instance" {
+  byte_length = 4
+
+  keepers = {
+    # Regenerate if project name or region changes
+    project_name = var.project_name
+    region       = var.region
+  }
+}
+
+locals {
+  # Label format: resilio-sync-us-east-a1b2c3d4
+  # Uses hyphens (required) and adds unique suffix to avoid conflicts
+  label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
+}
+
 resource "linode_instance" "resilio" {
   label            = local.label
   region           = var.region
