@@ -105,6 +105,12 @@ resource "linode_instance_config" "resilio" {
 
 # Public network interface - new in provider 3.x
 resource "linode_interface" "public" {
+  # Must wait for disks to be created before adding interface
+  depends_on = [
+    linode_instance_disk.resilio_boot_disk,
+    linode_instance_disk.resilio_tmp_disk
+  ]
+
   linode_id = linode_instance.resilio.id
 
   public = {
