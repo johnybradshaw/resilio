@@ -85,12 +85,12 @@ variable "tags" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed for SSH/ping access to jumpbox (e.g., '1.2.3.4/32')"
+  description = "CIDR block allowed for SSH/ping access to jumpbox. Defaults to auto-detected current IP. Set to '0.0.0.0/0' to allow all (NOT recommended)."
   type        = string
-  default     = "0.0.0.0/0"  # Default allows all - override with your IP for security
+  default     = null  # Will be auto-detected if not specified
 
   validation {
-    condition     = can(cidrhost(var.allowed_ssh_cidr, 0))
+    condition     = var.allowed_ssh_cidr == null || can(cidrhost(var.allowed_ssh_cidr, 0))
     error_message = "Must be a valid CIDR block (e.g., '1.2.3.4/32' or '0.0.0.0/0')."
   }
 }

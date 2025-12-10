@@ -60,3 +60,7 @@ output "jumpbox_ssh" {
   description = "SSH connection string for the jumpbox"
   value       = module.jumpbox.ssh_connection_string
 }
+output "allowed_ssh_cidr" {
+  description = "CIDR block allowed for SSH access (shows auto-detected IP if not manually set)"
+  value       = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
+}

@@ -50,10 +50,12 @@ tld                    = "example.com"
 ubuntu_advantage_token = "your-ubuntu-pro-token"  # Optional but recommended
 ```
 
-**Security tip:**
+**Security feature:**
 ```hcl
-# Set this to your IP for better security!
-allowed_ssh_cidr = "YOUR_IP/32"  # Default: "0.0.0.0/0" allows all
+# Your IP is auto-detected by default for maximum security!
+# Leave allowed_ssh_cidr unset to use auto-detection
+# Or set explicitly if needed:
+# allowed_ssh_cidr = "YOUR_IP/32"
 ```
 
 ### 3. (Optional) Configure Remote State Backend
@@ -167,7 +169,7 @@ Configure these at your registrar:
 | `instance_type` | Linode instance type | `string` | `"g6-standard-1"` | - |
 | `volume_size` | Storage volume size (GB) | `number` | `20` | 10-10000 GB |
 | `project_name` | Resource name prefix | `string` | `"resilio-sync"` | - |
-| `allowed_ssh_cidr` | CIDR for SSH access to jumpbox | `string` | `"0.0.0.0/0"` | Valid CIDR |
+| `allowed_ssh_cidr` | CIDR for SSH access to jumpbox | `string` | Auto-detected current IP | Valid CIDR |
 | `jumpbox_region` | Jumpbox region | `string` | `"us-east"` | - |
 | `jumpbox_instance_type` | Jumpbox instance type | `string` | `"g6-nanode-1"` | - |
 | `tags` | Resource tags | `list(string)` | `["deployment: terraform", "app: resilio"]` | - |
@@ -183,6 +185,7 @@ Configure these at your registrar:
 | `jumpbox_ip` | Jumpbox (bastion) IP address |
 | `jumpbox_ssh` | SSH command to connect to jumpbox |
 | `ssh_connection_strings` | SSH commands to resilio instances via jumpbox (uses SSH jump host) |
+| `allowed_ssh_cidr` | CIDR block used for SSH access (shows auto-detected IP) |
 
 ### Infrastructure Resources
 

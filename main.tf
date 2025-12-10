@@ -37,7 +37,8 @@ module "firewall" {
   linode_ipv6 = []  # Empty initially, will be updated later
 
   project_name = var.project_name
-  allowed_ssh_cidr = var.allowed_ssh_cidr
+  # Use auto-detected IP if allowed_ssh_cidr is not specified
+  allowed_ssh_cidr = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
   tags = local.tags # Concat tags and tld
 }
 
