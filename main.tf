@@ -192,7 +192,7 @@ RULES_EOF
         "https://api.linode.com/v4/networking/firewalls/$${FIREWALL_ID}/rules")
 
       HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-      BODY=$(echo "$RESPONSE" | head -n -1)
+      BODY=$(echo "$RESPONSE" | sed '$d')
 
       # Check response
       if [ "$HTTP_CODE" -eq 200 ]; then
