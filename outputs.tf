@@ -28,9 +28,14 @@ output "volume_ids" {
   }
 }
 
-output "firewall_id" {
-  description = "ID of the firewall protecting all instances"
-  value       = module.firewall.firewall_id
+output "jumpbox_firewall_id" {
+  description = "ID of the firewall protecting the jumpbox"
+  value       = module.jumpbox_firewall.firewall_id
+}
+
+output "resilio_firewall_id" {
+  description = "ID of the firewall protecting resilio instances"
+  value       = module.resilio_firewall.firewall_id
 }
 
 output "domain_id" {
@@ -67,5 +72,5 @@ output "allowed_ssh_cidr" {
 
 output "firewall_configuration" {
   description = "Firewall configuration status"
-  value       = "✅ Firewall rules automatically configured via Linode API after instance creation"
+  value       = "✅ Two separate firewalls configured: jumpbox-firewall (static rules) and resilio-firewall (auto-updated via Linode API)"
 }

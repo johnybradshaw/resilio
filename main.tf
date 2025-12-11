@@ -28,14 +28,24 @@ module "storage_volumes" {
   tags         = local.tags # Concat tags and tld
 }
 
-# Create a firewall first (before instances)
-module "firewall" {
-  source = "./modules/firewall"
+# Create separate firewalls for jumpbox and resilio instances
+# Jumpbox firewall - allows SSH from external network
+module "jumpbox_firewall" {
+  source = "./modules/jumpbox-firewall"
+
+  project_name = var.project_name
+  # Use auto-detected IP if allowed_ssh_cidr is not specified
+  allowed_ssh_cidr = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
+  tags             = local.tags # Concat tags and tld
+}
+
+# Resilio firewall - allows SSH from jumpbox and inter-instance communication
+module "resilio_firewall" {
+  source = "./modules/resilio-firewall"
 
   # Note: Instance IPs cannot be passed here due to circular dependency
   # (firewall needs IPs, but instances need firewall_id)
-  # Solution: These will be populated via outputs and can be referenced by external automation
-  # or manually added to firewall rules after initial deployment
+  # Solution: These will be populated via the firewall-rules-updater
   linode_ipv4 = []
   linode_ipv6 = []
 
@@ -44,9 +54,7 @@ module "firewall" {
   jumpbox_ipv6 = null
 
   project_name = var.project_name
-  # Use auto-detected IP if allowed_ssh_cidr is not specified
-  allowed_ssh_cidr = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
-  tags             = local.tags # Concat tags and tld
+  tags         = local.tags # Concat tags and tld
 }
 
 # Create jumpbox instance (bastion host for secure access)
@@ -57,7 +65,7 @@ module "jumpbox" {
   instance_type  = var.jumpbox_instance_type
   ssh_public_key = var.ssh_public_key
   project_name   = var.project_name
-  firewall_id    = module.firewall.firewall_id
+  firewall_id    = module.jumpbox_firewall.firewall_id
   tags           = local.tags
 }
 
@@ -76,7 +84,7 @@ module "linode_instances" {
   tld                    = var.tld
 
   volume_id   = module.storage_volumes[each.key].volume_id
-  firewall_id = module.firewall.firewall_id # Attach firewall during creation
+  firewall_id = module.resilio_firewall.firewall_id # Attach resilio firewall during creation
 
   tags = local.tags # Concat tags and tld
 }
