@@ -43,15 +43,13 @@ module "jumpbox_firewall" {
 module "resilio_firewall" {
   source = "./modules/resilio-firewall"
 
-  # Note: Instance IPs cannot be passed here due to circular dependency
-  # (firewall needs IPs, but instances need firewall_id)
-  # Solution: These will be populated via the firewall-rules-updater
-  linode_ipv4 = []
-  linode_ipv6 = []
-
-  # Jumpbox IPs also create circular dependency, so left as null
-  jumpbox_ipv4 = null
-  jumpbox_ipv6 = null
+  # Handle circular dependency: On first apply, these will be empty/null.
+  # On subsequent applies, they'll be populated with actual IPs.
+  # Use try() to gracefully handle when instances don't exist yet.
+  linode_ipv4  = try([for inst in module.linode_instances : tolist(inst.ipv4_address)[0]], [])
+  linode_ipv6  = try([for inst in module.linode_instances : inst.ipv6_address], [])
+  jumpbox_ipv4 = try(module.jumpbox.ipv4_address, null)
+  jumpbox_ipv6 = try(module.jumpbox.ipv6_address, null)
 
   project_name = var.project_name
   tags         = local.tags # Concat tags and tld
