@@ -133,7 +133,7 @@ resource "terraform_data" "update_resilio_firewall" {
       INSTANCE_IPS='${jsonencode(local.resilio_instance_ips)}'
 
       # Create rules JSON
-      cat > /tmp/resilio-fw-$${FIREWALL_ID}.json << 'RULES_EOF'
+      cat > /tmp/resilio-fw-$${FIREWALL_ID}.json <<RULES_EOF
 {
   "inbound": [
     {
