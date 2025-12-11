@@ -185,7 +185,7 @@ RULES_EOF
 
       # Update firewall
       echo "Calling Linode API to update firewall $${FIREWALL_ID}..."
-      RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
+      RESPONSE=$(curl -s -w "\n%%{http_code}" -X PUT \
         -H "Authorization: Bearer ${var.linode_token}" \
         -H "Content-Type: application/json" \
         -d @/tmp/resilio-fw-$${FIREWALL_ID}.json \
