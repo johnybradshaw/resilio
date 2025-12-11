@@ -22,42 +22,52 @@ This infrastructure uses two separate firewalls:
 
 ## Deployment Process
 
-Due to Terraform's circular dependency handling (firewall needs instance IPs, instances need firewall_id), the deployment requires **two applies**:
+The deployment handles the circular dependency automatically using a `terraform_data` resource:
 
-### First Apply
-Creates infrastructure with empty firewall rules:
+### Single Apply
+Run terraform apply once:
 ```bash
 terraform apply
 ```
 
-This creates:
-- Jumpbox firewall (with rules - no dependencies)
-- Resilio firewall (with NO rules yet - empty IPs)
-- Jumpbox instance
-- Resilio instances
+This automatically:
+1. Creates jumpbox firewall with rules ✅
+2. Creates resilio firewall with no rules (initially)
+3. Creates jumpbox and resilio instances
+4. **Automatically updates** resilio firewall rules via Linode API with actual IPs ✅
 
-### Second Apply
-Updates the resilio firewall with actual instance IPs:
-```bash
-terraform apply
-```
-
-This updates:
-- Resilio firewall rules with jumpbox IP and resilio instance IPs
+The `terraform_data.update_resilio_firewall` resource runs a provisioner after instances are created that:
+- Collects jumpbox and instance IPs
+- Calls Linode API to update firewall rules
+- Provides detailed success/failure output
 
 ## Verification
 
-After the second apply, verify firewall rules are in place:
+After apply completes, verify firewall rules are in place:
 
-1. **Check Terraform state**:
-   ```bash
-   terraform state show module.resilio_firewall.linode_firewall.resilio
+1. **Check apply output**: Look for the success message:
+   ```
+   ✅ Resilio firewall rules updated successfully!
    ```
 
 2. **Check Linode Console**:
    - Navigate to Firewalls in Linode Cloud Manager
    - Find `resilio-sync-resilio-fw-XXXX`
-   - Verify inbound rules are present
+   - Verify inbound rules are present:
+     - jumpbox-to-resilio-ssh
+     - jumpbox-to-resilio-ping
+     - resilio-all-tcp
+     - resilio-all-udp
+     - resilio-all-icmp
+
+3. **Test connectivity**:
+   ```bash
+   # SSH to jumpbox (should work)
+   ssh ac-user@<jumpbox-ip>
+
+   # From jumpbox, SSH to resilio instance (should work)
+   ssh ac-user@<resilio-ip>
+   ```
 
 ## Architecture
 
@@ -75,15 +85,27 @@ Resilio Instances ←→ (TCP/UDP/ICMP) ←→ Resilio Instances
 
 ## Troubleshooting
 
-**Q: Resilio firewall shows no rules after first apply**
-A: This is expected. Run `terraform apply` a second time to populate the rules.
+**Q: Firewall update failed during apply**
+A: Check the error output from the provisioner. Common issues:
+- `linode_token` not set or invalid
+- API rate limiting
+- Network connectivity issues
+Solution: Run `terraform apply` again to retry
 
-**Q: Can I avoid the two-apply process?**
-A: Use targeted applies:
+**Q: Rules not visible immediately after apply**
+A: The API update happens via provisioner, which runs after resource creation. Check:
+1. Terraform output for "✅ Resilio firewall rules updated successfully!"
+2. If update failed, check error message and retry
+
+**Q: Want to force firewall rules update**
+A: Taint the terraform_data resource:
 ```bash
-terraform apply -target=module.jumpbox_firewall -target=module.resilio_firewall
+terraform taint terraform_data.update_resilio_firewall
 terraform apply
 ```
 
 **Q: Rules not updating after IP changes**
-A: Run `terraform apply` to update firewall rules with new IPs.
+A: The `terraform_data` resource automatically detects IP changes via triggers. Run:
+```bash
+terraform apply
+```
