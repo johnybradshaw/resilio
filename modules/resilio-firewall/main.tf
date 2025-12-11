@@ -2,7 +2,7 @@
 
 # Generate a unique identifier for this firewall
 resource "random_id" "resilio_firewall" {
-  byte_length = 4
+  byte_length = 2
 
   keepers = {
     # Regenerate if project name changes
@@ -12,7 +12,7 @@ resource "random_id" "resilio_firewall" {
 
 # Create a Linode firewall for resilio instances
 resource "linode_firewall" "resilio" {
-  label           = "${var.project_name}-resilio-firewall-${random_id.resilio_firewall.hex}"
+  label           = "${var.project_name}-resilio-fw-${random_id.resilio_firewall.hex}"
   inbound_policy  = "DROP"
   outbound_policy = "ACCEPT"
 

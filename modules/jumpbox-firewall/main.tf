@@ -2,7 +2,7 @@
 
 # Generate a unique identifier for this firewall
 resource "random_id" "jumpbox_firewall" {
-  byte_length = 4
+  byte_length = 2
 
   keepers = {
     # Regenerate if project name changes
@@ -12,7 +12,7 @@ resource "random_id" "jumpbox_firewall" {
 
 # Create a Linode firewall for the jumpbox
 resource "linode_firewall" "jumpbox" {
-  label           = "${var.project_name}-jumpbox-firewall-${random_id.jumpbox_firewall.hex}"
+  label           = "${var.project_name}-jumpbox-fw-${random_id.jumpbox_firewall.hex}"
   inbound_policy  = "DROP"
   outbound_policy = "ACCEPT"
 
