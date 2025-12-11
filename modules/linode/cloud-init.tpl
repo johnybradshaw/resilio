@@ -81,7 +81,7 @@ apt:
       source: "ppa:jgmath2000/et"
 snap:
   commands:
-    0: [install, canonical-livepatch] 
+    0: [install, canonical-livepatch]
 package_update: true
 package_upgrade: true
 package_reboot_if_required: true
@@ -341,7 +341,7 @@ runcmd:
   # Enable unattended-upgrades & AppArmor
   - |
     systemctl enable --now unattended-upgrades apparmor &&
-    aa-enabled && 
+    aa-enabled &&
     apparmor_parser -a --Complain /etc/apparmor.d/
 
   # Hardening
@@ -352,7 +352,7 @@ runcmd:
   - systemctl enable aidecheck.timer
 
   # Add CIS Hardening
-  - | 
+  - |
     usg generate-tailoring cis_level1_server hardening.xml &&
     usg fix --tailoring-file hardening.xml
 

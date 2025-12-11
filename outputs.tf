@@ -43,18 +43,29 @@ output "dns_nameservers" {
   value       = module.dns.nameservers
 }
 
-output "root_passwords" {
-  description = "Root passwords for instances (use 'terraform output -raw root_passwords' to view)"
-  value = {
-    for region, instance in module.linode_instances : region => instance.root_password
-  }
-  sensitive = true
-}
-
 output "ssh_connection_strings" {
-  description = "SSH connection strings for easy access to instances"
+  description = "SSH connection strings to resilio instances via jumpbox (uses ac-user with SSH key authentication)"
   value = {
     for region, instance in module.linode_instances : region =>
-      "ssh root@${tolist(instance.ipv4_address)[0]}"
+    "ssh -J ac-user@${module.jumpbox.ipv4_address} ac-user@${tolist(instance.ipv4_address)[0]}"
   }
+}
+
+output "jumpbox_ip" {
+  description = "IP address of the jumpbox (bastion host)"
+  value       = module.jumpbox.ipv4_address
+}
+
+output "jumpbox_ssh" {
+  description = "SSH connection string for the jumpbox"
+  value       = module.jumpbox.ssh_connection_string
+}
+output "allowed_ssh_cidr" {
+  description = "CIDR block allowed for SSH access (shows auto-detected IP if not manually set)"
+  value       = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
+}
+
+output "firewall_configuration" {
+  description = "Firewall configuration status"
+  value       = "✅ Firewall rules automatically configured via Linode API after instance creation"
 }

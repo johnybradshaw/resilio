@@ -24,8 +24,8 @@ variable "resilio_folder_key" {
 
 variable "resilio_license_key" {
   description = "Resilio Sync license key"
-  type = string
-  sensitive = true
+  type        = string
+  sensitive   = true
 }
 
 variable "ssh_public_key" {
@@ -58,13 +58,13 @@ variable "project_name" {
 
 variable "ubuntu_advantage_token" {
   description = "Ubuntu Advantage token"
-  type = string
-  sensitive = true
+  type        = string
+  sensitive   = true
 }
 
 variable "tld" {
   description = "Top-Level Domain (TLD)"
-  type = string
+  type        = string
 
   validation {
     condition     = can(regex("^([a-z0-9][a-z0-9-]{0,61}[a-z0-9]\\.)+[a-z]{2,}$", var.tld))
@@ -75,7 +75,7 @@ variable "tld" {
 variable "create_domain" {
   description = "Whether to create the domain in Linode DNS or use an existing one. Set to false if domain already exists."
   type        = bool
-  default     = false  # Default to false since most users will have existing domains
+  default     = false # Default to false since most users will have existing domains
 }
 
 variable "tags" {
@@ -85,12 +85,24 @@ variable "tags" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed for SSH/ping access to instances (e.g., '1.2.3.4/32')"
+  description = "CIDR block allowed for SSH/ping access to jumpbox. Defaults to auto-detected current IP. Set to '0.0.0.0/0' to allow all (NOT recommended)."
   type        = string
-  default     = "0.0.0.0/0"  # Default allows all - override with your IP for security
+  default     = null # Will be auto-detected if not specified
 
   validation {
-    condition     = can(cidrhost(var.allowed_ssh_cidr, 0))
+    condition     = var.allowed_ssh_cidr == null || can(cidrhost(var.allowed_ssh_cidr, 0))
     error_message = "Must be a valid CIDR block (e.g., '1.2.3.4/32' or '0.0.0.0/0')."
   }
+}
+
+variable "jumpbox_region" {
+  description = "Linode region for the jumpbox (bastion host)"
+  type        = string
+  default     = "us-east"
+}
+
+variable "jumpbox_instance_type" {
+  description = "Linode instance type for the jumpbox"
+  type        = string
+  default     = "g6-nanode-1" # Smallest instance (1GB RAM, 1 vCPU) - sufficient for jumpbox
 }

@@ -49,7 +49,7 @@ If you need to update provider versions:
 
 ```bash
 # Option 1: Use the provided script (recommended)
-bash scripts/regenerate-lockfile.sh
+bash scripts/fix-provider-lock.sh --clean
 
 # Option 2: Manual update
 rm .terraform.lock.hcl
@@ -74,7 +74,8 @@ Install these tools before starting:
 
 2. **Linode CLI** (optional but recommended)
    ```bash
-   pip install linode-cli
+   # Install using pipx for isolated Python tools
+   pipx install linode-cli
    linode-cli configure
    ```
 
@@ -85,7 +86,8 @@ Install these tools before starting:
 
 4. **Pre-commit** (optional, for contributors)
    ```bash
-   pip install pre-commit
+   # Install using pipx for isolated Python tools
+   pipx install pre-commit
    pre-commit install
    ```
 
@@ -248,7 +250,7 @@ resilio/
 ├── scripts/                         # Helper scripts
 │   ├── setup-backend-credentials.sh
 │   ├── fix-provider-lock.sh
-│   └── regenerate-lockfile.sh
+│   └── import-existing-resources.sh
 │
 └── docs/                            # Documentation
     ├── SETUP.md                    # This file
@@ -341,7 +343,7 @@ git push origin feature/my-change
 # Edit provider.tf or module versions.tf files
 
 # 2. Regenerate lock file
-bash scripts/regenerate-lockfile.sh
+bash scripts/fix-provider-lock.sh --clean
 
 # 3. Test the changes
 terraform plan

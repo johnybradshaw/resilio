@@ -23,7 +23,19 @@ variable "tags" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed for SSH/ping access (e.g., '1.2.3.4/32')"
+  description = "CIDR block allowed for SSH/ping access to jumpbox (e.g., '1.2.3.4/32')"
   type        = string
-  default     = "0.0.0.0/0"  # Default allows all - should be overridden for security
+  default     = "0.0.0.0/0" # Default allows all - should be overridden for security
+}
+
+variable "jumpbox_ipv4" {
+  description = "Jumpbox IPv4 address for SSH access to resilio instances"
+  type        = string
+  default     = null
+}
+
+variable "jumpbox_ipv6" {
+  description = "Jumpbox IPv6 address for SSH access to resilio instances"
+  type        = string
+  default     = null
 }
