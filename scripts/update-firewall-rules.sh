@@ -49,7 +49,7 @@ echo -e "${YELLOW}To complete firewall configuration, you have two options:${NC}
 echo ""
 echo -e "${BLUE}Option 1: Use Linode Cloud Manager (Recommended)${NC}"
 echo "  1. Go to: https://cloud.linode.com/firewalls"
-echo "  2. Click on your firewall (resilio-sync-firewall-*)"  
+echo "  2. Click on your firewall (resilio-sync-firewall-*)"
 echo "  3. Add inbound rules:"
 echo "     • Label: jumpbox-to-resilio-ssh"
 echo "       Protocol: TCP, Ports: 22,2022"

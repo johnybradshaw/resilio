@@ -57,3 +57,4 @@ backend.tf
 # OS files
 .DS_Store
 Thumbs.db
+.op/plugins/linode-cli.json
