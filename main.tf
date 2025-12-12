@@ -114,7 +114,9 @@ locals {
 # This uses terraform_data (modern replacement for null_resource)
 resource "terraform_data" "update_resilio_firewall" {
   # Trigger update whenever IPs or firewall ID changes
+  # Bump version to force re-execution if needed
   triggers_replace = {
+    version      = "3" # Increment this to force firewall rules update
     jumpbox_ip   = local.jumpbox_ip
     instance_ips = join(",", local.resilio_instance_ips)
     firewall_id  = local.resilio_firewall_id
@@ -131,6 +133,24 @@ resource "terraform_data" "update_resilio_firewall" {
       FIREWALL_ID="${local.resilio_firewall_id}"
       JUMPBOX_IP="${local.jumpbox_ip}"
       INSTANCE_IPS='${jsonencode(local.resilio_instance_ips)}'
+
+      # Validate that we have the required IPs
+      if [ -z "$JUMPBOX_IP" ]; then
+        echo "❌ ERROR: Jumpbox IP is empty. Cannot update firewall rules."
+        exit 1
+      fi
+
+      if [ "$INSTANCE_IPS" = "[]" ] || [ -z "$INSTANCE_IPS" ]; then
+        echo "❌ ERROR: No Resilio instance IPs found. Cannot update firewall rules."
+        echo "   This usually means the Resilio instances haven't been created yet."
+        exit 1
+      fi
+
+      echo "📋 Firewall update details:"
+      echo "   Firewall ID: $FIREWALL_ID"
+      echo "   Jumpbox IP: $JUMPBOX_IP"
+      echo "   Instance IPs: $(echo $INSTANCE_IPS | jq -r '.[]' | tr '\n' ' ')"
+      echo ""
 
       # Create rules JSON
       cat > /tmp/resilio-fw-$${FIREWALL_ID}.json <<RULES_EOF
@@ -184,7 +204,7 @@ resource "terraform_data" "update_resilio_firewall" {
 RULES_EOF
 
       # Update firewall
-      echo "Calling Linode API to update firewall $${FIREWALL_ID}..."
+      echo "🔧 Calling Linode API to update firewall $${FIREWALL_ID}..."
       RESPONSE=$(curl -s -w "\n%%{http_code}" -X PUT \
         -H "Authorization: Bearer ${var.linode_token}" \
         -H "Content-Type: application/json" \
@@ -197,12 +217,28 @@ RULES_EOF
       # Check response
       if [ "$HTTP_CODE" -eq 200 ]; then
         echo "✅ Resilio firewall rules updated successfully!"
-        echo "   Jumpbox IP: $${JUMPBOX_IP}"
-        echo "   Instance IPs: $(echo $${INSTANCE_IPS} | jq -r '.[]' | tr '\n' ' ')"
+        echo ""
+        echo "Applied rules:"
+        echo "   • Allow SSH (ports 22, 2022) from jumpbox: $${JUMPBOX_IP}"
+        echo "   • Allow ICMP from jumpbox: $${JUMPBOX_IP}"
+        echo "   • Allow all TCP traffic between Resilio instances"
+        echo "   • Allow all UDP traffic between Resilio instances"
+        echo "   • Allow ICMP between Resilio instances"
+        echo "   • Instance IPs: $(echo $${INSTANCE_IPS} | jq -r '.[]' | tr '\n' ' ')"
+        echo ""
+        echo "Firewall ID: $${FIREWALL_ID}"
       else
         echo "❌ Failed to update firewall rules (HTTP $${HTTP_CODE})"
-        echo "$BODY"
-        rm -f /tmp/resilio-fw-$${FIREWALL_ID}.json
+        echo ""
+        echo "API Response:"
+        echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+        echo ""
+        echo "Generated rules file saved at: /tmp/resilio-fw-$${FIREWALL_ID}.json"
+        echo "You can inspect it for debugging or apply manually with:"
+        echo "  curl -X PUT -H 'Authorization: Bearer \$LINODE_TOKEN' \\"
+        echo "       -H 'Content-Type: application/json' \\"
+        echo "       -d @/tmp/resilio-fw-$${FIREWALL_ID}.json \\"
+        echo "       https://api.linode.com/v4/networking/firewalls/$${FIREWALL_ID}/rules"
         exit 1
       fi
 
