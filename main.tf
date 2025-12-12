@@ -116,7 +116,7 @@ resource "terraform_data" "update_resilio_firewall" {
   # Trigger update whenever IPs or firewall ID changes
   # Bump version to force re-execution if needed
   triggers_replace = {
-    version      = "2" # Increment this to force firewall rules update
+    version      = "3" # Increment this to force firewall rules update
     jumpbox_ip   = local.jumpbox_ip
     instance_ips = join(",", local.resilio_instance_ips)
     firewall_id  = local.resilio_firewall_id
