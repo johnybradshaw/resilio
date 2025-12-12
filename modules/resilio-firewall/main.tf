@@ -79,8 +79,11 @@ resource "linode_firewall" "resilio" {
 
   tags = var.tags
 
-  # Lifecycle to handle updates when IPs change
+  # Lifecycle to handle updates
   lifecycle {
     create_before_destroy = true
+    # Ignore changes to inbound rules since they're managed by terraform_data provisioner
+    # This prevents Terraform from removing rules added via the Linode API
+    ignore_changes = [inbound, inbound_policy, outbound_policy]
   }
 }
