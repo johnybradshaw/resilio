@@ -15,6 +15,22 @@ locals {
   # Label format: resilio-sync-us-east-a1b2c3d4
   # Uses hyphens (required) and adds unique suffix to avoid conflicts
   label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
+
+  # Support both old single key and new multiple keys for backward compatibility
+  folder_keys = var.resilio_folder_key != "" ? concat([var.resilio_folder_key], var.resilio_folder_keys) : var.resilio_folder_keys
+
+  # Generate JSON configuration for shared folders
+  resilio_folders = [
+    for key in local.folder_keys : {
+      secret            = key
+      dir               = "/mnt/resilio-data/${key}"
+      use_relay_server  = true
+      use_tracker       = true
+      search_lan        = false
+      use_sync_trash    = true
+      overwrite_changes = false
+    }
+  ]
 }
 
 resource "linode_instance" "resilio" {
@@ -35,14 +51,17 @@ resource "linode_instance" "resilio" {
   # Apply user data (cloud-init)
   metadata { # Requires base64encoding or errors
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
-      device_name            = local.label
-      ssh_public_key         = var.ssh_public_key
-      volume_id              = var.volume_id
-      resilio_folder_key     = var.resilio_folder_key
-      resilio_license_key    = var.resilio_license_key
-      tld                    = var.tld
-      ubuntu_advantage_token = var.ubuntu_advantage_token
-      mount_point            = "/mnt/resilio-data"
+      device_name                = local.label
+      ssh_public_key             = var.ssh_public_key
+      volume_id                  = var.volume_id
+      resilio_folders_json       = jsonencode(local.resilio_folders)
+      resilio_license_key        = var.resilio_license_key
+      tld                        = var.tld
+      ubuntu_advantage_token     = var.ubuntu_advantage_token
+      mount_point                = "/mnt/resilio-data"
+      object_storage_access_key  = var.object_storage_access_key
+      object_storage_secret_key  = var.object_storage_secret_key
+      object_storage_endpoint    = var.object_storage_endpoint
       })
     )
   }

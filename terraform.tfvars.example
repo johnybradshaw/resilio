@@ -12,8 +12,17 @@ linode_token = ""
 # Your SSH public key content (e.g., from ~/.ssh/id_rsa.pub)
 ssh_public_key = ""
 
-# Resilio Sync folder key for automatic synchronization
-resilio_folder_key = ""
+# Resilio Sync folder keys for automatic synchronization (list format)
+# Add multiple folder keys to sync different folders simultaneously
+# Each key will be synced to its own directory: /mnt/resilio-data/<key>
+resilio_folder_keys = [
+  # "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",  # Folder 1
+  # "BCDEFGHIJKLMNOPQRSTUVWXYZ2345678",  # Folder 2
+]
+
+# [DEPRECATED] Legacy single folder key (for backward compatibility)
+# Use resilio_folder_keys instead
+# resilio_folder_key = ""
 
 # Resilio Sync license key (for paid features)
 resilio_license_key = ""
@@ -67,3 +76,37 @@ project_name = "resilio-sync"
 # Tags to apply to all resources
 # Default: ["deployment: terraform", "app: resilio"]
 tags = ["deployment: terraform", "app: resilio", "environment: production"]
+
+# Non-root user for SSH access and management
+# This user will be created on all instances with sudo privileges
+# Default: "ac-user"
+# cloud_user = "ac-user"
+
+# ============================================================================
+# Backup Configuration - Linode Object Storage
+# ============================================================================
+
+# Linode Object Storage credentials for automated backups
+# IMPORTANT: Set these to enable daily backups to Object Storage
+# Leave as "CHANGEME" or empty to disable backups
+
+# Object Storage Access Key (get from: https://cloud.linode.com/object-storage/access-keys)
+# object_storage_access_key = "CHANGEME"
+
+# Object Storage Secret Key
+# object_storage_secret_key = "CHANGEME"
+
+# Object Storage Endpoint (region-specific)
+# Available endpoints:
+#   - us-east-1.linodeobjects.com (Newark, NJ)
+#   - us-southeast-1.linodeobjects.com (Atlanta, GA)
+#   - eu-central-1.linodeobjects.com (Frankfurt, DE)
+#   - ap-south-1.linodeobjects.com (Singapore)
+# Default: "us-east-1.linodeobjects.com"
+# object_storage_endpoint = "us-east-1.linodeobjects.com"
+
+# Backup Schedule:
+# - Daily backups run at 2:00 AM local time
+# - Incremental backups (only changed files)
+# - Old backups deleted after 30 days
+# - Backup location: resiliobackup:resilio-backups/<hostname>/

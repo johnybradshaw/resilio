@@ -24,10 +24,18 @@ variable "volume_id" {
   type        = string
 }
 
+variable "resilio_folder_keys" {
+  description = "List of Resilio Sync folder keys"
+  type        = list(string)
+  sensitive   = true
+}
+
+# Keep old variable for backward compatibility
 variable "resilio_folder_key" {
-  description = "Resilio Sync folder key"
+  description = "[DEPRECATED] Use resilio_folder_keys instead"
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "resilio_license_key" {
@@ -55,5 +63,22 @@ variable "tags" {
 
 variable "firewall_id" {
   description = "ID of the firewall to attach to this instance"
+  type        = string
+}
+
+variable "object_storage_access_key" {
+  description = "Linode Object Storage access key for backups"
+  type        = string
+  sensitive   = true
+}
+
+variable "object_storage_secret_key" {
+  description = "Linode Object Storage secret key for backups"
+  type        = string
+  sensitive   = true
+}
+
+variable "object_storage_endpoint" {
+  description = "Linode Object Storage endpoint"
   type        = string
 }

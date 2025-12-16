@@ -75,13 +75,19 @@ module "linode_instances" {
   instance_type          = var.instance_type # "g6-standard-2"
   ssh_public_key         = var.ssh_public_key
   project_name           = var.project_name # "resilio-sync"
-  resilio_folder_key     = var.resilio_folder_key
+  resilio_folder_keys    = var.resilio_folder_keys
+  resilio_folder_key     = var.resilio_folder_key # Backward compatibility
   resilio_license_key    = var.resilio_license_key
   ubuntu_advantage_token = var.ubuntu_advantage_token
   tld                    = var.tld
 
   volume_id   = module.storage_volumes[each.key].volume_id
   firewall_id = module.resilio_firewall.firewall_id # Attach resilio firewall during creation
+
+  # Object Storage for backups
+  object_storage_access_key = var.object_storage_access_key
+  object_storage_secret_key = var.object_storage_secret_key
+  object_storage_endpoint   = var.object_storage_endpoint
 
   tags = local.tags # Concat tags and tld
 }
