@@ -180,135 +180,64 @@ write_files:
         "shared_folders": ${resilio_folders_json}
       }
 
-  # Set up auditd
   - path: /etc/audit/rules.d/basic.rules
     permissions: '0644'
     content: |
-      # Watch for changes to passwd and shadow files
       -w /etc/passwd -p wa -k identity
       -w /etc/shadow -p wa -k identity
-
-      # Monitor sudo usage
       -w /usr/bin/sudo -p x -k sudo_exec
-
-      # Log all command executions (64-bit)
       -a always,exit -F arch=b64 -S execve -k exec_log
-
-      # Monitor changes to audit logs (audit tampering)
       -w /var/log/audit/ -p wa -k auditlog
-
-      # Watch for changes in /etc (configs)
       -w /etc/ -p wa -k etc_watch
-
-      # Monitor crontab changes
       -w /etc/crontab -p wa -k cron_changes
       -w /etc/cron.d/ -p wa -k cron_changes
-
-      # Track logins
       -w /var/log/wtmp -p wa -k logins
       -w /var/log/lastlog -p wa -k logins
   # Resilio backup script
   - path: /usr/local/bin/resilio-backup.sh
     permissions: '0755'
-    owner: root:root
     content: |
       #!/bin/bash
-      # Resilio Sync backup to Linode Object Storage
       set -euo pipefail
-
-      BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
-      HOSTNAME=$(hostname -f)
-      BACKUP_SOURCE="${mount_point}"
-      BACKUP_DEST="resiliobackup:resilio-backups/$HOSTNAME"
-      LOG_FILE="/var/log/resilio-backup.log"
-
-      echo "[$BACKUP_DATE] Starting backup of $BACKUP_SOURCE to $BACKUP_DEST" | tee -a "$LOG_FILE"
-
-      # Check if rclone is configured
-      if ! rclone listremotes | grep -q "resiliobackup:"; then
-        echo "[$BACKUP_DATE] ERROR: rclone remote 'resiliobackup' not configured" | tee -a "$LOG_FILE"
-        exit 1
-      fi
-
-      # Perform incremental backup with rclone
-      if rclone sync "$BACKUP_SOURCE" "$BACKUP_DEST" \
-        --exclude ".sync/StreamsList" \
-        --exclude ".sync/DownloadState" \
-        --exclude "*.!sync" \
-        --transfers 8 \
-        --checkers 16 \
-        --log-file="$LOG_FILE" \
-        --log-level INFO; then
-        echo "[$BACKUP_DATE] Backup completed successfully" | tee -a "$LOG_FILE"
-      else
-        echo "[$BACKUP_DATE] ERROR: Backup failed" | tee -a "$LOG_FILE"
-        exit 1
-      fi
-
-      # Clean up old backups (keep last 30 days)
-      echo "[$BACKUP_DATE] Cleaning up old backups" | tee -a "$LOG_FILE"
-      rclone delete "$BACKUP_DEST" --min-age 30d --log-file="$LOG_FILE" || true
-
-      echo "[$BACKUP_DATE] Backup process finished" | tee -a "$LOG_FILE"
-
-  # rclone configuration template
-  - path: /etc/rclone.conf.template
+      D=$(date +%Y%m%d-%H%M%S)
+      H=$(hostname -f)
+      L="/var/log/resilio-backup.log"
+      echo "[$D] Starting backup" | tee -a "$L"
+      rclone sync "${mount_point}" "r:${object_storage_bucket}/$H" \
+        --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
+        --transfers 8 --log-file="$L" --log-level INFO && \
+      echo "[$D] Backup done" | tee -a "$L" || echo "[$D] Backup failed" | tee -a "$L"
+      rclone delete "r:${object_storage_bucket}/$H" --min-age 30d >> "$L" 2>&1 || true
+  - path: /root/.config/rclone/rclone.conf
     permissions: '0600'
-    owner: root:root
     content: |
-      [resiliobackup]
-      type = s3
-      provider = Ceph
-      access_key_id = ${object_storage_access_key}
-      secret_access_key = ${object_storage_secret_key}
-      endpoint = ${object_storage_endpoint}
-      acl = private
+      [r]
+      type=s3
+      provider=Ceph
+      access_key_id=${object_storage_access_key}
+      secret_access_key=${object_storage_secret_key}
+      endpoint=${object_storage_endpoint}
+      acl=private
 
-  # nftables
   - path: /etc/nftables.conf
     permissions: '0644'
-    owner: root:root
     content: |
-      # nftables firewall configuration (CIS-style base with custom additions)
-
       table inet filter {
         chain input {
           type filter hook input priority 0; policy drop;
-
-          # Allow loopback traffic
           iifname "lo" accept
-
-          # Drop spoofed loopback traffic not on loopback interface (IPv4 & IPv6)
           ip saddr 127.0.0.0/8 iifname != "lo" drop
           ip6 saddr ::1 iifname != "lo" drop
-
-          # Allow established and related inbound connections
           ct state related,established accept
-
-          # Allow inbound SSH (inc. eternal-terminal)
           tcp dport { 22, 2022 } ct state new,established accept
-
-          # # Allow web traffic (HTTP, HTTPS)
-          # tcp dport { 80, 443 } ct state new,established accept
-
-          # # Allow Resilio Sync (default port)
-          # tcp dport 55555 ct state new,established accept
-
-          # Allow ping/ICMP
           ip protocol icmp accept
         }
-
         chain output {
           type filter hook output priority 0; policy drop;
-
-          # Allow all outbound traffic (new, related, established)
           ct state new,related,established accept
         }
-
         chain forward {
           type filter hook forward priority 0; policy drop;
-
-          # No forwarding is allowed by default (can be changed if routing is needed)
         }
       }
 
@@ -374,19 +303,10 @@ runcmd:
       echo ">>> License already applied — skipping license step"
     fi
   - systemctl enable --now resilio-sync
-
-  # Configure rclone for backups (only if credentials are provided)
   - |
-    if [ -n "${object_storage_access_key}" ] && [ "${object_storage_access_key}" != "CHANGEME" ]; then
-      echo ">>> Configuring rclone for backups"
-      mkdir -p /root/.config/rclone
-      cp /etc/rclone.conf.template /root/.config/rclone/rclone.conf
-
-      # Set up daily backup cron job at 2 AM
-      echo "0 2 * * * /usr/local/bin/resilio-backup.sh >> /var/log/resilio-backup.log 2>&1" | crontab -
-      echo ">>> Backup cron job configured"
-    else
-      echo ">>> Skipping rclone configuration (no credentials provided)"
+    if [ "${object_storage_access_key}" != "CHANGEME" ]; then
+      echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
+      echo ">>> Backup enabled"
     fi
 
   # Load audit rules

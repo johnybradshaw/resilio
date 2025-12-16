@@ -140,6 +140,12 @@ variable "object_storage_endpoint" {
   default     = "us-east-1.linodeobjects.com"
 }
 
+variable "object_storage_bucket" {
+  description = "Linode Object Storage bucket name for backups"
+  type        = string
+  default     = "resilio-backups"
+}
+
 variable "cloud_user" {
   description = "Non-root user for SSH access and management"
   type        = string

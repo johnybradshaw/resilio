@@ -105,8 +105,13 @@ tags = ["deployment: terraform", "app: resilio", "environment: production"]
 # Default: "us-east-1.linodeobjects.com"
 # object_storage_endpoint = "us-east-1.linodeobjects.com"
 
+# Object Storage Bucket name (must be created in Linode Object Storage first)
+# Default: "resilio-backups"
+# object_storage_bucket = "resilio-backups"
+
 # Backup Schedule:
 # - Daily backups run at 2:00 AM local time
 # - Incremental backups (only changed files)
 # - Old backups deleted after 30 days
-# - Backup location: resiliobackup:resilio-backups/<hostname>/
+# - Backup location: <bucket>/<hostname>/
+# - NOTE: Create the bucket in Linode Object Storage before enabling backups

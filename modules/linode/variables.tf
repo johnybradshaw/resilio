@@ -82,3 +82,8 @@ variable "object_storage_endpoint" {
   description = "Linode Object Storage endpoint"
   type        = string
 }
+
+variable "object_storage_bucket" {
+  description = "Linode Object Storage bucket name"
+  type        = string
+}

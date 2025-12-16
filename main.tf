@@ -88,6 +88,7 @@ module "linode_instances" {
   object_storage_access_key = var.object_storage_access_key
   object_storage_secret_key = var.object_storage_secret_key
   object_storage_endpoint   = var.object_storage_endpoint
+  object_storage_bucket     = var.object_storage_bucket
 
   tags = local.tags # Concat tags and tld
 }
