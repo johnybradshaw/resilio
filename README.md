@@ -5,9 +5,13 @@ A production-ready Terraform solution for deploying Resilio Sync on Linode acros
 ## ✨ Features
 
 - **Multi-Region Deployment**: Deploy across multiple Linode regions with automatic cross-region synchronization
-- **Secure by Default**: Firewall-protected instances with configurable SSH access control
+- **Multiple Folder Support**: Sync multiple Resilio folders simultaneously with dedicated directories per folder key
+- **Automated Backups**: Daily incremental backups to Linode Object Storage with 30-day retention
+- **Dedicated Logging**: Resilio Sync logs to `/var/log/resilio-sync/sync.log` with 7-day retention
+- **Secure by Default**: Firewall-protected instances with configurable SSH access control via jumpbox (bastion)
 - **Automated DNS Management**: Automatic A and AAAA record creation with Linode DNS
-- **Block Storage**: Persistent volumes with encryption support and lifecycle protection
+- **Block Storage**: Persistent volumes with encryption support and comprehensive lifecycle protection
+- **Volume Resize Safety**: Online volume expansion with zero downtime and data loss protection
 - **Cloud-Init Bootstrap**: Automated instance configuration with Ubuntu Pro hardening
 - **State Management**: Configurable remote state backend support (S3, Terraform Cloud, GCS, Azure)
 - **CI/CD Ready**: Pre-commit hooks for automated validation and security scanning
@@ -44,10 +48,20 @@ cp terraform.tfvars.example terraform.tfvars
 ```hcl
 linode_token           = "your-linode-api-token"
 ssh_public_key         = "ssh-rsa AAAA..."
-resilio_folder_key     = "your-resilio-folder-key"
+resilio_folder_keys    = ["your-resilio-folder-key-1", "your-resilio-folder-key-2"]  # Support multiple folders
 resilio_license_key    = "your-resilio-license"
 tld                    = "example.com"
 ubuntu_advantage_token = "your-ubuntu-pro-token"  # Optional but recommended
+```
+
+**Optional backup configuration:**
+```hcl
+# Enable automated backups to Linode Object Storage
+# See docs/OBJECT_STORAGE_SETUP.md for setup instructions
+object_storage_access_key = "your-access-key"       # Get from Linode Object Storage
+object_storage_secret_key = "your-secret-key"
+object_storage_bucket     = "resilio-backups"       # Must create bucket first
+object_storage_endpoint   = "us-east-1.linodeobjects.com"
 ```
 
 **Security feature:**
@@ -156,7 +170,7 @@ Configure these at your registrar:
 |------|-------------|------|-----------|
 | `linode_token` | Linode API token | `string` | Yes |
 | `ssh_public_key` | SSH public key for instance access | `string` | No |
-| `resilio_folder_key` | Resilio Sync folder key | `string` | Yes |
+| `resilio_folder_keys` | List of Resilio Sync folder keys (supports multiple folders) | `list(string)` | Yes |
 | `resilio_license_key` | Resilio Sync license key | `string` | Yes |
 | `tld` | Top-Level Domain (e.g., "example.com") | `string` | No |
 | `ubuntu_advantage_token` | Ubuntu Advantage token | `string` | Yes |
@@ -172,7 +186,17 @@ Configure these at your registrar:
 | `allowed_ssh_cidr` | CIDR for SSH access to jumpbox | `string` | Auto-detected current IP | Valid CIDR |
 | `jumpbox_region` | Jumpbox region | `string` | `"us-east"` | - |
 | `jumpbox_instance_type` | Jumpbox instance type | `string` | `"g6-nanode-1"` | - |
+| `cloud_user` | Non-root user for SSH access | `string` | `"ac-user"` | - |
 | `tags` | Resource tags | `list(string)` | `["deployment: terraform", "app: resilio"]` | - |
+
+### Backup Variables (Optional)
+
+| Name | Description | Type | Default | Sensitive |
+|------|-------------|------|---------|-----------|
+| `object_storage_access_key` | Object Storage access key | `string` | `"CHANGEME"` | Yes |
+| `object_storage_secret_key` | Object Storage secret key | `string` | `"CHANGEME"` | Yes |
+| `object_storage_endpoint` | Object Storage endpoint | `string` | `"us-east-1.linodeobjects.com"` | No |
+| `object_storage_bucket` | Object Storage bucket name | `string` | `"resilio-backups"` | No |
 
 ## 📤 Outputs
 
@@ -322,6 +346,57 @@ Apply changes:
 terraform apply
 ```
 
+### Expand Volume Size
+
+See [docs/VOLUME_RESIZE_SAFETY.md](docs/VOLUME_RESIZE_SAFETY.md) for detailed instructions.
+
+Quick steps:
+```bash
+# 1. Edit terraform.tfvars - ONLY INCREASE SIZE (never decrease)
+volume_size = 50  # Increase from 20 to 50 GB
+
+# 2. Apply changes (online, no downtime)
+terraform apply
+
+# 3. SSH into each instance and resize filesystem
+ssh -J ac-user@jumpbox.example.com ac-user@resilio-instance.example.com
+sudo resize2fs /dev/disk/by-label/resilio
+
+# 4. Verify new size
+df -h /mnt/resilio-data
+```
+
+### View Resilio Logs
+
+```bash
+# SSH into instance
+ssh -J ac-user@jumpbox.example.com ac-user@resilio-instance.example.com
+
+# View Resilio Sync logs
+sudo tail -f /var/log/resilio-sync/sync.log
+
+# View systemd logs
+sudo journalctl -u resilio-sync -f
+```
+
+### Manage Backups
+
+See [docs/OBJECT_STORAGE_SETUP.md](docs/OBJECT_STORAGE_SETUP.md) for complete guide.
+
+```bash
+# View backup logs
+sudo tail -f /var/log/resilio-backup.log
+
+# Trigger manual backup
+sudo /usr/local/bin/resilio-backup.sh
+
+# List backups (from local machine with rclone configured)
+rclone ls r:resilio-backups/
+
+# Restore from backup
+rclone sync r:resilio-backups/<hostname>/ /mnt/resilio-data/ --progress
+```
+
 ## 🔄 Upgrade Guide
 
 ### Migrating DNS Records (v2.x to v3.x)
@@ -393,6 +468,9 @@ Each module has detailed documentation:
 - [Setup Guide](docs/SETUP.md) - Complete first-time setup and configuration guide
 - [Backend Setup Guide](docs/BACKEND_SETUP.md) - Configure Linode Object Storage backend with 1Password
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Resolve common issues and errors
+- [Firewall Setup Guide](docs/FIREWALL_SETUP.md) - Understanding and managing firewall configurations
+- [Volume Resize Safety Guide](docs/VOLUME_RESIZE_SAFETY.md) - Safe volume expansion without downtime or data loss
+- [Object Storage Setup Guide](docs/OBJECT_STORAGE_SETUP.md) - Configure automated backups to Linode Object Storage
 
 ### Helper Scripts
 

@@ -16,10 +16,22 @@ variable "regions" {
   }
 }
 
+variable "resilio_folder_keys" {
+  description = "List of Resilio Sync folder keys to automatically add. Each folder key will be synced to a separate directory."
+  type        = list(string)
+  sensitive   = true
+  default     = []
+
+  # Note: Validation removed to allow empty list when using deprecated resilio_folder_key variable
+  # Either resilio_folder_keys or resilio_folder_key must be provided
+}
+
+# Keep old variable for backward compatibility
 variable "resilio_folder_key" {
-  description = "Resilio Sync folder key to automatically add"
+  description = "[DEPRECATED] Use resilio_folder_keys instead. Single Resilio Sync folder key to automatically add."
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "resilio_license_key" {
@@ -105,4 +117,36 @@ variable "jumpbox_instance_type" {
   description = "Linode instance type for the jumpbox"
   type        = string
   default     = "g6-nanode-1" # Smallest instance (1GB RAM, 1 vCPU) - sufficient for jumpbox
+}
+
+variable "object_storage_access_key" {
+  description = "Linode Object Storage access key for backups. Set to empty string or 'CHANGEME' to disable backups."
+  type        = string
+  sensitive   = true
+  default     = "CHANGEME"
+}
+
+variable "object_storage_secret_key" {
+  description = "Linode Object Storage secret key for backups"
+  type        = string
+  sensitive   = true
+  default     = "CHANGEME"
+}
+
+variable "object_storage_endpoint" {
+  description = "Linode Object Storage endpoint (e.g., us-east-1.linodeobjects.com)"
+  type        = string
+  default     = "us-east-1.linodeobjects.com"
+}
+
+variable "object_storage_bucket" {
+  description = "Linode Object Storage bucket name for backups"
+  type        = string
+  default     = "resilio-backups"
+}
+
+variable "cloud_user" {
+  description = "Non-root user for SSH access and management"
+  type        = string
+  default     = "ac-user"
 }

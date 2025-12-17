@@ -101,6 +101,7 @@ packages:
   - unattended-upgrades
   # Utilities
   - ncdu # disk usage
+  - rclone # backup to object storage
 
 # User Management
 users:
@@ -174,91 +175,67 @@ write_files:
         "storage_path": "${mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
         "use_upnp": false,
-        "shared_folders": [
-          {
-            "secret": "${resilio_folder_key}",
-            "dir": "${mount_point}/${resilio_folder_key}",
-            "use_relay_server": true,
-            "use_tracker": true,
-            "search_lan": false,
-            "use_sync_trash": true,
-            "overwrite_changes": false
-          }
-        ]
+        "shared_folders": ${resilio_folders_json}
       }
 
-  # Set up auditd
   - path: /etc/audit/rules.d/basic.rules
     permissions: '0644'
     content: |
-      # Watch for changes to passwd and shadow files
       -w /etc/passwd -p wa -k identity
       -w /etc/shadow -p wa -k identity
-
-      # Monitor sudo usage
       -w /usr/bin/sudo -p x -k sudo_exec
-
-      # Log all command executions (64-bit)
       -a always,exit -F arch=b64 -S execve -k exec_log
-
-      # Monitor changes to audit logs (audit tampering)
       -w /var/log/audit/ -p wa -k auditlog
-
-      # Watch for changes in /etc (configs)
       -w /etc/ -p wa -k etc_watch
-
-      # Monitor crontab changes
       -w /etc/crontab -p wa -k cron_changes
       -w /etc/cron.d/ -p wa -k cron_changes
-
-      # Track logins
       -w /var/log/wtmp -p wa -k logins
       -w /var/log/lastlog -p wa -k logins
-  # nftables
+  # Resilio backup script
+  - path: /usr/local/bin/resilio-backup.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      D=$(date +%Y%m%d-%H%M%S)
+      H=$(hostname -f)
+      L="/var/log/resilio-backup.log"
+      echo "[$D] Starting backup" | tee -a "$L"
+      rclone sync "${mount_point}" "r:${object_storage_bucket}/$H" \
+        --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
+        --transfers 8 --log-file="$L" --log-level INFO && \
+      echo "[$D] Backup done" | tee -a "$L" || echo "[$D] Backup failed" | tee -a "$L"
+      rclone delete "r:${object_storage_bucket}/$H" --min-age 30d >> "$L" 2>&1 || true
+  - path: /root/.config/rclone/rclone.conf
+    permissions: '0600'
+    content: |
+      [r]
+      type=s3
+      provider=Ceph
+      access_key_id=${object_storage_access_key}
+      secret_access_key=${object_storage_secret_key}
+      endpoint=${object_storage_endpoint}
+      acl=private
+
   - path: /etc/nftables.conf
     permissions: '0644'
-    owner: root:root
     content: |
-      # nftables firewall configuration (CIS-style base with custom additions)
-
       table inet filter {
         chain input {
           type filter hook input priority 0; policy drop;
-
-          # Allow loopback traffic
           iifname "lo" accept
-
-          # Drop spoofed loopback traffic not on loopback interface (IPv4 & IPv6)
           ip saddr 127.0.0.0/8 iifname != "lo" drop
           ip6 saddr ::1 iifname != "lo" drop
-
-          # Allow established and related inbound connections
           ct state related,established accept
-
-          # Allow inbound SSH (inc. eternal-terminal)
           tcp dport { 22, 2022 } ct state new,established accept
-
-          # # Allow web traffic (HTTP, HTTPS)
-          # tcp dport { 80, 443 } ct state new,established accept
-
-          # # Allow Resilio Sync (default port)
-          # tcp dport 55555 ct state new,established accept
-
-          # Allow ping/ICMP
           ip protocol icmp accept
         }
-
         chain output {
           type filter hook output priority 0; policy drop;
-
-          # Allow all outbound traffic (new, related, established)
           ct state new,related,established accept
         }
-
         chain forward {
           type filter hook forward priority 0; policy drop;
-
-          # No forwarding is allowed by default (can be changed if routing is needed)
         }
       }
 
@@ -277,6 +254,8 @@ runcmd:
 
   # Create directories
   - mkdir -p ${mount_point}/.sync
+  - mkdir -p /var/log/resilio-sync
+  - chown rslsync:rslsync /var/log/resilio-sync
 
   # Activate Ubuntu Advantage
   - pro enable esm-infra esm-apps livepatch usg
@@ -322,6 +301,11 @@ runcmd:
       echo ">>> License already applied — skipping license step"
     fi
   - systemctl enable --now resilio-sync
+  - |
+    if [ "${object_storage_access_key}" != "CHANGEME" ]; then
+      echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
+      echo ">>> Backup enabled"
+    fi
 
   # Load audit rules
   - [ bash, -c, "augenrules --load" ]
@@ -351,14 +335,16 @@ runcmd:
     cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
   - systemctl enable aidecheck.timer
 
-  # Add CIS Hardening
-  - |
-    usg generate-tailoring cis_level1_server hardening.xml &&
-    usg fix --tailoring-file hardening.xml
+  # CIS Hardening - DISABLED temporarily due to boot issues
+  # Re-enable after validating system boots correctly
+  # - |
+  #   usg generate-tailoring cis_level1_server hardening.xml &&
+  #   usg fix --tailoring-file hardening.xml
 
-# Reboot after Cloud-Init
-power_state:
-  delay: now
-  mode: reboot
-  message: "Reboot after Cloud-Init completion"
-  condition: True
+# Reboot after Cloud-Init - DISABLED to prevent boot loops
+# Re-enable after validating cloud-init completes successfully
+# power_state:
+#   delay: now
+#   mode: reboot
+#   message: "Reboot after Cloud-Init completion"
+#   condition: True

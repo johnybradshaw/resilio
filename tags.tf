@@ -3,7 +3,8 @@ locals {
   tags = concat(
     var.tags, [
       "tld: ${var.tld}",             # e.g. "tld: test.com"
-      "project: ${var.project_name}" # e.g. "project: resilio-sync"
+      "project: ${var.project_name}", # e.g. "project: resilio-sync"
+      "user: ${var.cloud_user}"      # e.g. "user: ac-user"
     ]
   )
 }
