@@ -20,11 +20,10 @@ variable "resilio_folder_keys" {
   description = "List of Resilio Sync folder keys to automatically add. Each folder key will be synced to a separate directory."
   type        = list(string)
   sensitive   = true
+  default     = []
 
-  validation {
-    condition     = length(var.resilio_folder_keys) > 0
-    error_message = "At least one Resilio folder key must be specified."
-  }
+  # Note: Validation removed to allow empty list when using deprecated resilio_folder_key variable
+  # Either resilio_folder_keys or resilio_folder_key must be provided
 }
 
 # Keep old variable for backward compatibility

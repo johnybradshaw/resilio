@@ -19,6 +19,9 @@ locals {
   # Support both old single key and new multiple keys for backward compatibility
   folder_keys = var.resilio_folder_key != "" ? concat([var.resilio_folder_key], var.resilio_folder_keys) : var.resilio_folder_keys
 
+  # Validate that at least one folder key is provided
+  _validate_folder_keys = length(local.folder_keys) > 0 ? true : tobool("ERROR: At least one Resilio folder key must be provided via resilio_folder_keys or resilio_folder_key")
+
   # Generate JSON configuration for shared folders
   resilio_folders = [
     for key in local.folder_keys : {
