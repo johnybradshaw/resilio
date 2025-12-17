@@ -337,14 +337,16 @@ runcmd:
     cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
   - systemctl enable aidecheck.timer
 
-  # Add CIS Hardening
-  - |
-    usg generate-tailoring cis_level1_server hardening.xml &&
-    usg fix --tailoring-file hardening.xml
+  # CIS Hardening - DISABLED temporarily due to boot issues
+  # Re-enable after validating system boots correctly
+  # - |
+  #   usg generate-tailoring cis_level1_server hardening.xml &&
+  #   usg fix --tailoring-file hardening.xml
 
-# Reboot after Cloud-Init
-power_state:
-  delay: now
-  mode: reboot
-  message: "Reboot after Cloud-Init completion"
-  condition: True
+# Reboot after Cloud-Init - DISABLED to prevent boot loops
+# Re-enable after validating cloud-init completes successfully
+# power_state:
+#   delay: now
+#   mode: reboot
+#   message: "Reboot after Cloud-Init completion"
+#   condition: True
