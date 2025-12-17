@@ -174,8 +174,6 @@ write_files:
         "listening_port": 8889,
         "storage_path": "${mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
-        "log_file": "/var/log/resilio-sync/sync.log",
-        "log_ttl": 7,
         "use_upnp": false,
         "shared_folders": ${resilio_folders_json}
       }
