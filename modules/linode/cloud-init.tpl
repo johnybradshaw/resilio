@@ -195,6 +195,7 @@ write_files:
     content: |
       #!/bin/bash
       set -euo pipefail
+      trap 'rm -f "$FOLDERS_FILE.tmp"' EXIT
       MOUNT="${mount_point}"
       FOLDERS_FILE="$MOUNT/.sync/folders.json"
       CONFIG_TPL="/etc/resilio-sync/config.json.tpl"
@@ -236,7 +237,7 @@ write_files:
           chown rslsync:rslsync "$FOLDERS_FILE"
           generate_config
           echo "Added folder: $DIR"
-          echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
+          echo "Run 'sudo resilio-folders apply' to apply changes and restart the service."
           ;;
         remove)
           if [ -z "$${2:-}" ]; then
@@ -250,7 +251,7 @@ write_files:
           chown rslsync:rslsync "$FOLDERS_FILE"
           generate_config
           echo "Removed folder: $DIR (data NOT deleted)"
-          echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
+          echo "Run 'sudo resilio-folders apply' to apply changes and restart the service."
           ;;
         regenerate)
           generate_config
@@ -317,7 +318,7 @@ write_files:
 
       # Calculate difference (account for GPT overhead ~1MB)
       DIFF=$((DEVICE_SIZE - PART_SIZE))
-      THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold
+      THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold to provide a safe margin and avoid resizing for tiny differences
 
       if [ "$DIFF" -gt "$THRESHOLD" ]; then
         log "Volume resize detected: device=$((DEVICE_SIZE/1024/1024))MB, partition=$((PART_SIZE/1024/1024))MB"
