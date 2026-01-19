@@ -52,20 +52,20 @@ resource "linode_instance" "resilio" {
   # Don't set booted - let it default, config will control boot
 
   # Apply user data (cloud-init)
-  metadata { # Requires base64encoding or errors
-    user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
-      device_name                = local.label
-      ssh_public_key             = var.ssh_public_key
-      volume_id                  = var.volume_id
-      resilio_folders_json       = jsonencode(local.resilio_folders)
-      resilio_license_key        = var.resilio_license_key
-      tld                        = var.tld
-      ubuntu_advantage_token     = var.ubuntu_advantage_token
-      mount_point                = "/mnt/resilio-data"
-      object_storage_access_key  = var.object_storage_access_key
-      object_storage_secret_key  = var.object_storage_secret_key
-      object_storage_endpoint    = var.object_storage_endpoint
-      object_storage_bucket      = var.object_storage_bucket
+  metadata { # Requires base64encoding or errors; gzip to stay under 16KB limit
+    user_data = base64gzip(templatefile("${path.module}/cloud-init.tpl", {
+      device_name               = local.label
+      ssh_public_key            = var.ssh_public_key
+      volume_id                 = var.volume_id
+      resilio_folders_json      = jsonencode(local.resilio_folders)
+      resilio_license_key       = var.resilio_license_key
+      tld                       = var.tld
+      ubuntu_advantage_token    = var.ubuntu_advantage_token
+      mount_point               = "/mnt/resilio-data"
+      object_storage_access_key = var.object_storage_access_key
+      object_storage_secret_key = var.object_storage_secret_key
+      object_storage_endpoint   = var.object_storage_endpoint
+      object_storage_bucket     = var.object_storage_bucket
       })
     )
   }
