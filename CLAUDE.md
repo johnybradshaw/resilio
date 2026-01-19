@@ -241,6 +241,42 @@ ssh -J ac-user@<jumpbox-ip> ac-user@<resilio-instance-ip>
 
 Simply add the region code to the `regions` variable - the for_each pattern handles the rest.
 
+### Adding/Removing Resilio Folders (Non-Destructive)
+
+Folder configuration is stored on the persistent volume at `/mnt/resilio-data/.sync/folders.json`. This allows folder changes **without recreating instances**.
+
+**Via SSH (recommended for adding folders):**
+
+```bash
+# Connect to instance via jumpbox
+ssh -J ac-user@<jumpbox-ip> ac-user@<resilio-instance-ip>
+
+# List current folders
+sudo resilio-folders list
+
+# Add a new folder
+sudo resilio-folders add "BXXXXXXXXX..." my-new-folder
+
+# Apply changes and restart Resilio
+sudo resilio-folders apply
+
+# Remove a folder (keeps data on disk)
+sudo resilio-folders remove my-folder
+sudo resilio-folders apply
+```
+
+**Via Terraform (initial deployment only):**
+
+Adding folders via `resilio_folder_keys` variable will only affect **new instances**. Existing instances use their volume-based config and won't be recreated (due to `ignore_changes = [metadata]`).
+
+To update existing instances after changing `resilio_folder_keys`:
+1. SSH to each instance and use `resilio-folders add`
+2. OR force instance replacement one region at a time:
+   ```bash
+   terraform apply -replace='module.linode_instances["us-east"].linode_instance.resilio'
+   # Wait for sync, then next region
+   ```
+
 ### Modifying Firewall Rules
 
 - Jumpbox firewall: `modules/jumpbox-firewall/main.tf`

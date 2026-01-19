@@ -166,7 +166,13 @@ write_files:
   - path: /etc/resilio-sync/license.key
     permissions: '0644'
     content: "${resilio_license_key}"
-  - path: /etc/resilio-sync/config.json
+  # Default folders config - only used if no config exists on volume
+  - path: /etc/resilio-sync/default-folders.json
+    permissions: '0644'
+    content: |
+      ${resilio_folders_json}
+  # Config template - shared_folders populated from volume at boot
+  - path: /etc/resilio-sync/config.json.tpl
     permissions: '0644'
     content: |
       {
@@ -175,8 +181,94 @@ write_files:
         "storage_path": "${mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
         "use_upnp": false,
-        "shared_folders": ${resilio_folders_json}
+        "shared_folders": FOLDERS_PLACEHOLDER
       }
+  # Folder management script - allows non-destructive folder changes via SSH
+  - path: /usr/local/bin/resilio-folders
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      MOUNT="${mount_point}"
+      FOLDERS_FILE="$MOUNT/.sync/folders.json"
+      CONFIG_TPL="/etc/resilio-sync/config.json.tpl"
+      CONFIG="/etc/resilio-sync/config.json"
+
+      generate_config() {
+        if [ ! -f "$FOLDERS_FILE" ]; then
+          echo "Error: $FOLDERS_FILE not found" >&2
+          exit 1
+        fi
+        # Read folders and inject into config template
+        FOLDERS=$(cat "$FOLDERS_FILE")
+        sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" > "$CONFIG"
+        chown rslsync:rslsync "$CONFIG"
+        echo "Config regenerated at $CONFIG"
+      }
+
+      case "$${1:-help}" in
+        list)
+          echo "Current folders:"
+          cat "$FOLDERS_FILE" | jq -r '.[] | "  - \(.dir) [\(.secret[0:8])...]"'
+          ;;
+        add)
+          if [ -z "$${2:-}" ] || [ -z "$${3:-}" ]; then
+            echo "Usage: resilio-folders add <folder_key> <directory_name>"
+            echo "Example: resilio-folders add BXXXXXXX... documents"
+            exit 1
+          fi
+          KEY="$2"
+          DIR="$3"
+          FULL_PATH="$MOUNT/$DIR"
+          # Create directory if needed
+          mkdir -p "$FULL_PATH"
+          chown rslsync:rslsync "$FULL_PATH"
+          # Add to folders.json
+          jq --arg key "$KEY" --arg dir "$FULL_PATH" \
+            '. += [{"secret": $key, "dir": $dir, "use_relay_server": true, "use_tracker": true, "search_lan": false, "use_sync_trash": false, "overwrite_changes": false, "selective_sync": false}]' \
+            "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
+          chown rslsync:rslsync "$FOLDERS_FILE"
+          generate_config
+          echo "Added folder: $DIR"
+          echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
+          ;;
+        remove)
+          if [ -z "$${2:-}" ]; then
+            echo "Usage: resilio-folders remove <directory_name>"
+            exit 1
+          fi
+          DIR="$2"
+          FULL_PATH="$MOUNT/$DIR"
+          jq --arg dir "$FULL_PATH" 'map(select(.dir != $dir))' \
+            "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
+          chown rslsync:rslsync "$FOLDERS_FILE"
+          generate_config
+          echo "Removed folder: $DIR (data NOT deleted)"
+          echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
+          ;;
+        regenerate)
+          generate_config
+          ;;
+        apply)
+          generate_config
+          systemctl restart resilio-sync
+          echo "Config applied and Resilio Sync restarted"
+          ;;
+        *)
+          echo "Resilio Sync Folder Manager"
+          echo ""
+          echo "Usage: resilio-folders <command> [args]"
+          echo ""
+          echo "Commands:"
+          echo "  list                     - List configured folders"
+          echo "  add <key> <dir>          - Add a new folder"
+          echo "  remove <dir>             - Remove a folder (keeps data)"
+          echo "  regenerate               - Regenerate config from folders.json"
+          echo "  apply                    - Regenerate config and restart service"
+          echo ""
+          echo "Folders config: $FOLDERS_FILE"
+          ;;
+      esac
 
   - path: /etc/audit/rules.d/basic.rules
     permissions: '0644'
@@ -267,7 +359,7 @@ runcmd:
   # Install additional packages without prompting
   - |
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      et resilio-sync usg \
+      et resilio-sync usg jq \
       -o Dpkg::Options::="--force-confdef" \
       -o Dpkg::Options::="--force-confold"
 
@@ -276,6 +368,23 @@ runcmd:
 
   # Set ownership on Resilio Sync files/folders
   - chown -R rslsync:rslsync ${mount_point} /etc/resilio-sync
+
+  # Initialize folder config from volume (preserves existing config across instance recreation)
+  - |
+    FOLDERS_FILE="${mount_point}/.sync/folders.json"
+    if [ ! -f "$FOLDERS_FILE" ]; then
+      echo ">>> No existing folder config found — creating from defaults"
+      mkdir -p "${mount_point}/.sync"
+      cp /etc/resilio-sync/default-folders.json "$FOLDERS_FILE"
+      chown rslsync:rslsync "$FOLDERS_FILE"
+    else
+      echo ">>> Using existing folder config from $FOLDERS_FILE"
+    fi
+    # Generate config.json from template + volume-based folders
+    FOLDERS=$(cat "$FOLDERS_FILE")
+    sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl > /etc/resilio-sync/config.json
+    chown rslsync:rslsync /etc/resilio-sync/config.json
+    echo ">>> Resilio config generated"
 
   # Create Resilio Sync identity and apply license
   # Create a new identity only if none exists
