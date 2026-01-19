@@ -29,8 +29,8 @@ fs_setup:
   - {device: /dev/sdb1, filesystem: ext4, label: tmpdisk, overwrite: true}
   - {device: /dev/sdb2, filesystem: ext4, label: logdisk, overwrite: true}
   - {device: /dev/sdb3, filesystem: ext4, label: vartmpdisk, overwrite: true}
-  # application data
-  - {device: /dev/sdc1, filesystem: ext4, label: resilio, extra_opts: [ "-T", "news" ], overwrite: true}
+  # application data - NEVER overwrite to preserve existing data on volume
+  - {device: /dev/sdc1, filesystem: ext4, label: resilio, extra_opts: [ "-T", "news" ], overwrite: false}
 # Mount points
 mounts:
   # OS mounts
@@ -127,11 +127,13 @@ write_files:
     content: |
       [Service]
       LimitNOFILE=1048576
-  # Unattended Upgrades
+  # Unattended Upgrades - APT periodic configuration
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
       APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Download-Upgradeable-Packages "1";
       APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
   - path: /etc/apt/apt.conf.d/50unattended-upgrades
     content: |
       Unattended-Upgrade::Allowed-Origins {
@@ -141,12 +143,16 @@ write_files:
         "$${distro_id}:$${distro_codename}-proposed";
         "$${distro_id}:$${distro_codename}-backports";
       };
+      Unattended-Upgrade::Package-Blacklist {
+      };
       Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
       Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
       Unattended-Upgrade::Remove-Unused-Dependencies "true";
       Unattended-Upgrade::AutoFixInterruptedDpkg "true";
       Unattended-Upgrade::Automatic-Reboot "true";
       Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+      Unattended-Upgrade::SyslogEnable "true";
+      Unattended-Upgrade::SyslogFacility "daemon";
   # SSH access
   - path: /etc/ssh/sshd_config.d/99-cloud-ssh-access.conf
     permissions: '0644'
@@ -166,7 +172,13 @@ write_files:
   - path: /etc/resilio-sync/license.key
     permissions: '0644'
     content: "${resilio_license_key}"
-  - path: /etc/resilio-sync/config.json
+  # Default folders config - only used if no config exists on volume
+  - path: /etc/resilio-sync/default-folders.json
+    permissions: '0644'
+    content: |
+      ${resilio_folders_json}
+  # Config template - shared_folders populated from volume at boot
+  - path: /etc/resilio-sync/config.json.tpl
     permissions: '0644'
     content: |
       {
@@ -175,8 +187,95 @@ write_files:
         "storage_path": "${mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
         "use_upnp": false,
-        "shared_folders": ${resilio_folders_json}
+        "shared_folders": FOLDERS_PLACEHOLDER
       }
+  # Folder management script - allows non-destructive folder changes via SSH
+  - path: /usr/local/bin/resilio-folders
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      trap 'rm -f "$FOLDERS_FILE.tmp"' EXIT
+      MOUNT="${mount_point}"
+      FOLDERS_FILE="$MOUNT/.sync/folders.json"
+      CONFIG_TPL="/etc/resilio-sync/config.json.tpl"
+      CONFIG="/etc/resilio-sync/config.json"
+
+      generate_config() {
+        if [ ! -f "$FOLDERS_FILE" ]; then
+          echo "Error: $FOLDERS_FILE not found" >&2
+          exit 1
+        fi
+        # Read folders and inject into config template
+        FOLDERS=$(cat "$FOLDERS_FILE")
+        sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" > "$CONFIG"
+        chown rslsync:rslsync "$CONFIG"
+        echo "Config regenerated at $CONFIG"
+      }
+
+      case "$${1:-help}" in
+        list)
+          echo "Current folders:"
+          cat "$FOLDERS_FILE" | jq -r '.[] | "  - \(.dir) [\(.secret[0:8])...]"'
+          ;;
+        add)
+          if [ -z "$${2:-}" ] || [ -z "$${3:-}" ]; then
+            echo "Usage: resilio-folders add <folder_key> <directory_name>"
+            echo "Example: resilio-folders add BXXXXXXX... documents"
+            exit 1
+          fi
+          KEY="$2"
+          DIR="$3"
+          FULL_PATH="$MOUNT/$DIR"
+          # Create directory if needed
+          mkdir -p "$FULL_PATH"
+          chown rslsync:rslsync "$FULL_PATH"
+          # Add to folders.json
+          jq --arg key "$KEY" --arg dir "$FULL_PATH" \
+            '. += [{"secret": $key, "dir": $dir, "use_relay_server": true, "use_tracker": true, "search_lan": false, "use_sync_trash": false, "overwrite_changes": false, "selective_sync": false}]' \
+            "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
+          chown rslsync:rslsync "$FOLDERS_FILE"
+          generate_config
+          echo "Added folder: $DIR"
+          echo "Run 'sudo resilio-folders apply' to apply changes and restart the service."
+          ;;
+        remove)
+          if [ -z "$${2:-}" ]; then
+            echo "Usage: resilio-folders remove <directory_name>"
+            exit 1
+          fi
+          DIR="$2"
+          FULL_PATH="$MOUNT/$DIR"
+          jq --arg dir "$FULL_PATH" 'map(select(.dir != $dir))' \
+            "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
+          chown rslsync:rslsync "$FOLDERS_FILE"
+          generate_config
+          echo "Removed folder: $DIR (data NOT deleted)"
+          echo "Run 'sudo resilio-folders apply' to apply changes and restart the service."
+          ;;
+        regenerate)
+          generate_config
+          ;;
+        apply)
+          generate_config
+          systemctl restart resilio-sync
+          echo "Config applied and Resilio Sync restarted"
+          ;;
+        *)
+          echo "Resilio Sync Folder Manager"
+          echo ""
+          echo "Usage: resilio-folders <command> [args]"
+          echo ""
+          echo "Commands:"
+          echo "  list                     - List configured folders"
+          echo "  add <key> <dir>          - Add a new folder"
+          echo "  remove <dir>             - Remove a folder (keeps data)"
+          echo "  regenerate               - Regenerate config from folders.json"
+          echo "  apply                    - Regenerate config and restart service"
+          echo ""
+          echo "Folders config: $FOLDERS_FILE"
+          ;;
+      esac
 
   - path: /etc/audit/rules.d/basic.rules
     permissions: '0644'
@@ -191,6 +290,79 @@ write_files:
       -w /etc/cron.d/ -p wa -k cron_changes
       -w /var/log/wtmp -p wa -k logins
       -w /var/log/lastlog -p wa -k logins
+  # Volume auto-expand script - automatically grows filesystem when volume is resized
+  - path: /usr/local/bin/volume-auto-expand.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Automatically expand filesystem if volume has been resized
+      # Runs on boot via systemd before resilio-sync starts
+      set -euo pipefail
+
+      DEVICE="/dev/sdc"
+      PARTITION="/dev/sdc1"
+      MOUNT="${mount_point}"
+      LOG="/var/log/volume-expand.log"
+
+      log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
+
+      # Check if partition exists
+      if [ ! -b "$PARTITION" ]; then
+        log "Partition $PARTITION not found, skipping expansion"
+        exit 0
+      fi
+
+      # Get sizes in bytes
+      DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
+      PART_SIZE=$(blockdev --getsize64 "$PARTITION")
+
+      # Calculate difference (account for GPT overhead ~1MB)
+      DIFF=$((DEVICE_SIZE - PART_SIZE))
+      THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold to provide a safe margin and avoid resizing for tiny differences
+
+      if [ "$DIFF" -gt "$THRESHOLD" ]; then
+        log "Volume resize detected: device=$((DEVICE_SIZE/1024/1024))MB, partition=$((PART_SIZE/1024/1024))MB"
+        log "Expanding partition..."
+
+        # Grow partition to fill device
+        if growpart "$DEVICE" 1; then
+          log "Partition expanded successfully"
+        else
+          log "ERROR: Failed to expand partition"
+          exit 1
+        fi
+
+        # Resize filesystem (works online for ext4)
+        log "Expanding filesystem..."
+        if resize2fs "$PARTITION"; then
+          NEW_SIZE=$(blockdev --getsize64 "$PARTITION")
+          log "Filesystem expanded successfully: $((NEW_SIZE/1024/1024))MB"
+        else
+          log "ERROR: Failed to expand filesystem"
+          exit 1
+        fi
+      else
+        log "No expansion needed: device and partition sizes match"
+      fi
+
+  # Systemd service for volume auto-expansion
+  - path: /etc/systemd/system/volume-auto-expand.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Auto-expand volume filesystem if resized
+      DefaultDependencies=no
+      Before=resilio-sync.service
+      After=local-fs.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/volume-auto-expand.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
   # Resilio backup script
   - path: /usr/local/bin/resilio-backup.sh
     permissions: '0755'
@@ -267,7 +439,7 @@ runcmd:
   # Install additional packages without prompting
   - |
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      et resilio-sync usg \
+      et resilio-sync usg jq cloud-guest-utils \
       -o Dpkg::Options::="--force-confdef" \
       -o Dpkg::Options::="--force-confold"
 
@@ -276,6 +448,23 @@ runcmd:
 
   # Set ownership on Resilio Sync files/folders
   - chown -R rslsync:rslsync ${mount_point} /etc/resilio-sync
+
+  # Initialize folder config from volume (preserves existing config across instance recreation)
+  - |
+    FOLDERS_FILE="${mount_point}/.sync/folders.json"
+    if [ ! -f "$FOLDERS_FILE" ]; then
+      echo ">>> No existing folder config found — creating from defaults"
+      mkdir -p "${mount_point}/.sync"
+      cp /etc/resilio-sync/default-folders.json "$FOLDERS_FILE"
+      chown rslsync:rslsync "$FOLDERS_FILE"
+    else
+      echo ">>> Using existing folder config from $FOLDERS_FILE"
+    fi
+    # Generate config.json from template + volume-based folders
+    FOLDERS=$(cat "$FOLDERS_FILE")
+    sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl > /etc/resilio-sync/config.json
+    chown rslsync:rslsync /etc/resilio-sync/config.json
+    echo ">>> Resilio config generated"
 
   # Create Resilio Sync identity and apply license
   # Create a new identity only if none exists
@@ -300,6 +489,12 @@ runcmd:
     else
       echo ">>> License already applied — skipping license step"
     fi
+
+  # Enable volume auto-expansion service (runs on boot before resilio-sync)
+  - systemctl daemon-reload
+  - systemctl enable volume-auto-expand.service
+  - /usr/local/bin/volume-auto-expand.sh  # Run once now in case volume was pre-expanded
+
   - systemctl enable --now resilio-sync
   - |
     if [ "${object_storage_access_key}" != "CHANGEME" ]; then
@@ -322,8 +517,10 @@ runcmd:
   - systemctl mask ctrl-alt-del.target
   - systemctl daemon-reload
 
-  # Enable unattended-upgrades & AppArmor
+  # Enable unattended-upgrades, apt-daily timers & AppArmor
   - |
+    # Enable apt-daily timers for automatic updates
+    systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
     systemctl enable --now unattended-upgrades apparmor &&
     aa-enabled &&
     apparmor_parser -a --Complain /etc/apparmor.d/

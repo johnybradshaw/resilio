@@ -4,7 +4,7 @@
 
 config {
   # Enable module inspection
-  module = true
+  call_module_type = "all"
 
   # Force the behavior of returning an error code when issues are found
   force = false
