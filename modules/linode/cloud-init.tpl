@@ -127,11 +127,13 @@ write_files:
     content: |
       [Service]
       LimitNOFILE=1048576
-  # Unattended Upgrades
+  # Unattended Upgrades - APT periodic configuration
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
       APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Download-Upgradeable-Packages "1";
       APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
   - path: /etc/apt/apt.conf.d/50unattended-upgrades
     content: |
       Unattended-Upgrade::Allowed-Origins {
@@ -141,12 +143,16 @@ write_files:
         "$${distro_id}:$${distro_codename}-proposed";
         "$${distro_id}:$${distro_codename}-backports";
       };
+      Unattended-Upgrade::Package-Blacklist {
+      };
       Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
       Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
       Unattended-Upgrade::Remove-Unused-Dependencies "true";
       Unattended-Upgrade::AutoFixInterruptedDpkg "true";
       Unattended-Upgrade::Automatic-Reboot "true";
       Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+      Unattended-Upgrade::SyslogEnable "true";
+      Unattended-Upgrade::SyslogFacility "daemon";
   # SSH access
   - path: /etc/ssh/sshd_config.d/99-cloud-ssh-access.conf
     permissions: '0644'
@@ -510,8 +516,10 @@ runcmd:
   - systemctl mask ctrl-alt-del.target
   - systemctl daemon-reload
 
-  # Enable unattended-upgrades & AppArmor
+  # Enable unattended-upgrades, apt-daily timers & AppArmor
   - |
+    # Enable apt-daily timers for automatic updates
+    systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
     systemctl enable --now unattended-upgrades apparmor &&
     aa-enabled &&
     apparmor_parser -a --Complain /etc/apparmor.d/
