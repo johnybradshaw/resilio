@@ -200,6 +200,48 @@ terraform apply -replace='module.linode_instances["us-east"].linode_instance.res
 terraform apply -replace='module.linode_instances["eu-west"].linode_instance.resilio'
 ```
 
+### Resizing Volumes (Automatic Expansion)
+
+Volume resizing is **non-destructive** and automatic. The filesystem expands on next boot.
+
+**To increase volume size:**
+
+1. Update `volume_size` in `terraform.tfvars`:
+   ```hcl
+   volume_size = 50  # Increase from current size
+   ```
+
+2. Apply the change:
+   ```bash
+   terraform apply
+   ```
+
+3. Reboot the instance (or wait for next reboot):
+   ```bash
+   ssh -J ac-user@<jumpbox> ac-user@<resilio-instance>
+   sudo reboot
+   ```
+
+4. Verify expansion (after reboot):
+   ```bash
+   df -h /mnt/resilio-data
+   cat /var/log/volume-expand.log
+   ```
+
+**How it works:**
+- A systemd service (`volume-auto-expand.service`) runs on every boot
+- It compares block device size vs partition size
+- If volume was resized, it runs `growpart` and `resize2fs` automatically
+- Expansion happens before Resilio Sync starts
+- Logs are written to `/var/log/volume-expand.log`
+
+**Manual expansion (if needed):**
+```bash
+sudo /usr/local/bin/volume-auto-expand.sh
+```
+
+**Note**: Linode volumes can only be **increased**, never decreased.
+
 ## Important Implementation Details
 
 ### Firewall Rules Update

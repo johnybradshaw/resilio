@@ -283,6 +283,79 @@ write_files:
       -w /etc/cron.d/ -p wa -k cron_changes
       -w /var/log/wtmp -p wa -k logins
       -w /var/log/lastlog -p wa -k logins
+  # Volume auto-expand script - automatically grows filesystem when volume is resized
+  - path: /usr/local/bin/volume-auto-expand.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Automatically expand filesystem if volume has been resized
+      # Runs on boot via systemd before resilio-sync starts
+      set -euo pipefail
+
+      DEVICE="/dev/sdc"
+      PARTITION="/dev/sdc1"
+      MOUNT="${mount_point}"
+      LOG="/var/log/volume-expand.log"
+
+      log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
+
+      # Check if partition exists
+      if [ ! -b "$PARTITION" ]; then
+        log "Partition $PARTITION not found, skipping expansion"
+        exit 0
+      fi
+
+      # Get sizes in bytes
+      DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
+      PART_SIZE=$(blockdev --getsize64 "$PARTITION")
+
+      # Calculate difference (account for GPT overhead ~1MB)
+      DIFF=$((DEVICE_SIZE - PART_SIZE))
+      THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold
+
+      if [ "$DIFF" -gt "$THRESHOLD" ]; then
+        log "Volume resize detected: device=$((DEVICE_SIZE/1024/1024))MB, partition=$((PART_SIZE/1024/1024))MB"
+        log "Expanding partition..."
+
+        # Grow partition to fill device
+        if growpart "$DEVICE" 1; then
+          log "Partition expanded successfully"
+        else
+          log "ERROR: Failed to expand partition"
+          exit 1
+        fi
+
+        # Resize filesystem (works online for ext4)
+        log "Expanding filesystem..."
+        if resize2fs "$PARTITION"; then
+          NEW_SIZE=$(blockdev --getsize64 "$PARTITION")
+          log "Filesystem expanded successfully: $((NEW_SIZE/1024/1024))MB"
+        else
+          log "ERROR: Failed to expand filesystem"
+          exit 1
+        fi
+      else
+        log "No expansion needed: device and partition sizes match"
+      fi
+
+  # Systemd service for volume auto-expansion
+  - path: /etc/systemd/system/volume-auto-expand.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Auto-expand volume filesystem if resized
+      DefaultDependencies=no
+      Before=resilio-sync.service
+      After=local-fs.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/volume-auto-expand.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
   # Resilio backup script
   - path: /usr/local/bin/resilio-backup.sh
     permissions: '0755'
@@ -359,7 +432,7 @@ runcmd:
   # Install additional packages without prompting
   - |
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      et resilio-sync usg jq \
+      et resilio-sync usg jq cloud-guest-utils \
       -o Dpkg::Options::="--force-confdef" \
       -o Dpkg::Options::="--force-confold"
 
@@ -409,6 +482,12 @@ runcmd:
     else
       echo ">>> License already applied — skipping license step"
     fi
+
+  # Enable volume auto-expansion service (runs on boot before resilio-sync)
+  - systemctl daemon-reload
+  - systemctl enable volume-auto-expand.service
+  - /usr/local/bin/volume-auto-expand.sh  # Run once now in case volume was pre-expanded
+
   - systemctl enable --now resilio-sync
   - |
     if [ "${object_storage_access_key}" != "CHANGEME" ]; then
