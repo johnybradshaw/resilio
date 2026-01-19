@@ -69,6 +69,17 @@ resource "linode_instance" "resilio" {
       })
     )
   }
+
+  lifecycle {
+    # SAFETY: Ignore metadata changes to prevent instance recreation
+    # Cloud-init only runs on first boot; subsequent changes require manual intervention
+    # or intentional instance replacement using: terraform apply -replace="module.linode_instances[\"region\"].linode_instance.resilio"
+    ignore_changes = [metadata]
+
+    # SAFETY: When replacement IS needed, create new instance before destroying old
+    # This allows data to sync to the new instance before the old one is removed
+    create_before_destroy = true
+  }
 }
 
 resource "linode_instance_disk" "resilio_boot_disk" {

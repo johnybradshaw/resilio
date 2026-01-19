@@ -29,8 +29,8 @@ fs_setup:
   - {device: /dev/sdb1, filesystem: ext4, label: tmpdisk, overwrite: true}
   - {device: /dev/sdb2, filesystem: ext4, label: logdisk, overwrite: true}
   - {device: /dev/sdb3, filesystem: ext4, label: vartmpdisk, overwrite: true}
-  # application data
-  - {device: /dev/sdc1, filesystem: ext4, label: resilio, extra_opts: [ "-T", "news" ], overwrite: true}
+  # application data - NEVER overwrite to preserve existing data on volume
+  - {device: /dev/sdc1, filesystem: ext4, label: resilio, extra_opts: [ "-T", "news" ], overwrite: false}
 # Mount points
 mounts:
   # OS mounts

@@ -118,6 +118,88 @@ The project uses `for_each` with `toset(var.regions)` for multi-region deploymen
 - `detect-secrets` - Prevents credential commits
 - `no-commit-to-branch` - Blocks commits to main/master
 
+## CRITICAL: Destructive Changes Warning
+
+### Instance Recreation Triggers
+
+**WARNING**: The following variable changes will **DESTROY AND RECREATE** instances because they modify the `metadata.user_data` (cloud-init):
+
+- `ssh_public_key`
+- `resilio_folder_keys` or `resilio_folder_key`
+- `resilio_license_key`
+- `tld`
+- `ubuntu_advantage_token`
+- `object_storage_access_key`, `object_storage_secret_key`, `object_storage_endpoint`, `object_storage_bucket`
+
+**Also triggers recreation**:
+- `instance_type` changes (may recreate depending on Linode provider)
+- `region` changes (always recreates)
+- `project_name` changes (triggers new random_id)
+
+### Data Loss Risk Assessment
+
+**Protected (data survives instance recreation)**:
+- Volumes have `prevent_destroy = true` in `modules/volume/main.tf:14`
+- Volumes ignore label/region changes (`ignore_changes = [label, region]`)
+- Resilio identity and license are stored on the volume and preserved (cloud-init checks before creating)
+
+**AT RISK**:
+- If ALL instances are recreated simultaneously, sync is interrupted until instances come back online
+- Any data not yet synced to other regions or Object Storage backup will be lost
+- The cloud-init `fs_setup` at `modules/linode/cloud-init.tpl:33` has `overwrite: true` which could format the volume partition on recreation
+
+### Safe Deployment Procedures
+
+**Before making changes that trigger instance recreation**:
+
+1. **Verify backups are current**:
+   ```bash
+   ssh -J ac-user@jumpbox ac-user@resilio-instance
+   sudo tail -20 /var/log/resilio-backup.log
+   ```
+
+2. **Check sync status** - Ensure all data is synced across regions before proceeding
+
+3. **Apply changes one region at a time** using targeted applies:
+   ```bash
+   # Apply to us-east first
+   terraform apply -target='module.linode_instances["us-east"]'
+
+   # Wait for sync to complete, then apply to other regions
+   terraform apply -target='module.linode_instances["eu-west"]'
+
+   # Finally, apply remaining changes
+   terraform apply
+   ```
+
+4. **Never apply during active sync operations** - Wait for sync to complete
+
+### Safety Mechanisms Implemented
+
+The following safety mechanisms are in place to prevent data loss:
+
+1. **Lifecycle rules ignore metadata changes** (`modules/linode/main.tf`):
+   - `ignore_changes = [metadata]` prevents instance recreation when cloud-init variables change
+   - Configuration changes require manual intervention or explicit replacement
+
+2. **fs_setup does not overwrite data volume** (`modules/linode/cloud-init.tpl:33`):
+   - `overwrite: false` ensures existing data is never formatted on instance recreation
+
+3. **Create before destroy** (`modules/linode/main.tf`):
+   - `create_before_destroy = true` ensures new instance is created and can sync before old one is removed
+
+### Forcing Instance Replacement
+
+When you DO need to replace an instance (e.g., to apply new cloud-init config):
+
+```bash
+# Replace a specific instance explicitly
+terraform apply -replace='module.linode_instances["us-east"].linode_instance.resilio'
+
+# Wait for sync, then replace next region
+terraform apply -replace='module.linode_instances["eu-west"].linode_instance.resilio'
+```
+
 ## Important Implementation Details
 
 ### Firewall Rules Update
@@ -130,12 +212,14 @@ Volumes have lifecycle protection enabled. See `docs/VOLUME_RESIZE_SAFETY.md` fo
 
 ### Cloud-Init Template
 
-Instance provisioning uses cloud-init template at `modules/linode/user_data.tftpl` for:
+Instance provisioning uses cloud-init template at `modules/linode/cloud-init.tpl` for:
 - User creation (`ac-user`)
 - SSH key configuration
 - Resilio Sync installation and configuration
 - Volume mounting
 - Backup script setup (when Object Storage is configured)
+
+**Note**: The cloud-init runs on every instance creation. The template includes checks to preserve existing Resilio identity and license (lines 282-302), but other configurations will be reapplied.
 
 ### SSH Access Pattern
 
