@@ -153,6 +153,42 @@ write_files:
       Unattended-Upgrade::Automatic-Reboot-Time "03:00";
       Unattended-Upgrade::SyslogEnable "true";
       Unattended-Upgrade::SyslogFacility "daemon";
+  # Logrotate configuration for custom logs
+  - path: /etc/logrotate.d/resilio-custom
+    permissions: '0644'
+    content: |
+      # Resilio backup log - rotated daily, keep 7 days
+      /var/log/resilio-backup.log {
+        daily
+        rotate 7
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
+
+      # Volume expansion log - rotated weekly, keep 4 weeks
+      /var/log/volume-expand.log {
+        weekly
+        rotate 4
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
+
+      # Cloud-init debug logs - rotated monthly, keep 2 months
+      /var/log/cloud-init-blkid.log {
+        monthly
+        rotate 2
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
   # SSH access
   - path: /etc/ssh/sshd_config.d/99-cloud-ssh-access.conf
     permissions: '0644'
