@@ -137,11 +137,19 @@ write_files:
   - path: /etc/apt/apt.conf.d/50unattended-upgrades
     content: |
       Unattended-Upgrade::Allowed-Origins {
+        // Standard Ubuntu origins
         "$${distro_id}:$${distro_codename}";
         "$${distro_id}:$${distro_codename}-security";
         "$${distro_id}:$${distro_codename}-updates";
         "$${distro_id}:$${distro_codename}-proposed";
         "$${distro_id}:$${distro_codename}-backports";
+        // Ubuntu Pro ESM origins (requires ubuntu_advantage_token)
+        "UbuntuESM:$${distro_codename}-infra-security";
+        "UbuntuESM:$${distro_codename}-infra-updates";
+        "UbuntuESMApps:$${distro_codename}-apps-security";
+        "UbuntuESMApps:$${distro_codename}-apps-updates";
+        // Ubuntu CIS benchmarks (usg package)
+        "UbuntuCIS:$${distro_codename}";
       };
       Unattended-Upgrade::Package-Blacklist {
       };
