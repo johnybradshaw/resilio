@@ -167,6 +167,7 @@ write_files:
     content: |
       # Resilio backup log - rotated daily, keep 7 days
       /var/log/resilio-backup.log {
+        su root root
         daily
         rotate 7
         compress
@@ -178,6 +179,7 @@ write_files:
 
       # Volume expansion log - rotated weekly, keep 4 weeks
       /var/log/volume-expand.log {
+        su root root
         weekly
         rotate 4
         compress
@@ -189,6 +191,7 @@ write_files:
 
       # Cloud-init debug logs - rotated monthly, keep 2 months
       /var/log/cloud-init-blkid.log {
+        su root root
         monthly
         rotate 2
         compress
