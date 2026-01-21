@@ -1,19 +1,8 @@
 # modules/linode/main.tf
 
-# Generate a unique identifier for this instance
-resource "random_id" "instance" {
-  byte_length = 4
-
-  keepers = {
-    # Regenerate if project name or region changes
-    project_name = var.project_name
-    region       = var.region
-  }
-}
-
 locals {
-  # Label format: resilio-sync-us-east-a1b2c3d4
-  label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
+  # Label format: resilio-sync-us-east-a1b2c3d4 (uses global suffix)
+  label = "${var.project_name}-${var.region}-${var.suffix}"
 
   # Extract non-sensitive folder names for iteration
   # The keys (secrets) are sensitive, but folder names are not
@@ -98,6 +87,10 @@ resource "linode_instance" "resilio" {
       object_storage_endpoint   = var.object_storage_endpoint
       object_storage_bucket     = var.object_storage_bucket
       enable_backup             = var.enable_backup
+      # SSL certificate for HTTPS
+      ssl_certificate     = var.ssl_certificate
+      ssl_private_key     = var.ssl_private_key
+      ssl_issuer_cert     = var.ssl_issuer_cert
     }))
   }
 

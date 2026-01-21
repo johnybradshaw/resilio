@@ -1,18 +1,8 @@
 # modules/resilio-firewall/main.tf
 
-# Generate a unique identifier for this firewall
-resource "random_id" "resilio_firewall" {
-  byte_length = 2
-
-  keepers = {
-    # Regenerate if project name changes
-    project_name = var.project_name
-  }
-}
-
-# Create a Linode firewall for resilio instances
+# Create a Linode firewall for resilio instances (uses global suffix for consistency)
 resource "linode_firewall" "resilio" {
-  label           = "${var.project_name}-resilio-fw-${random_id.resilio_firewall.hex}"
+  label           = "${var.project_name}-resilio-fw-${var.suffix}"
   inbound_policy  = "DROP"
   outbound_policy = "ACCEPT"
 

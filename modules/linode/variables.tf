@@ -19,6 +19,11 @@ variable "project_name" {
   type        = string
 }
 
+variable "suffix" {
+  description = "Global suffix shared across all VMs (from random_id.global_suffix)"
+  type        = string
+}
+
 # New per-folder volume configuration
 variable "resilio_folders" {
   description = "Map of folder names to their configurations"
@@ -114,4 +119,23 @@ variable "enable_backup" {
   description = "Whether to enable Object Storage backups on this instance"
   type        = bool
   default     = false
+}
+
+# SSL certificate variables for Resilio HTTPS
+variable "ssl_certificate" {
+  description = "Let's Encrypt SSL certificate (PEM format)"
+  type        = string
+  sensitive   = true
+}
+
+variable "ssl_private_key" {
+  description = "SSL certificate private key (PEM format)"
+  type        = string
+  sensitive   = true
+}
+
+variable "ssl_issuer_cert" {
+  description = "SSL issuer/CA certificate (PEM format)"
+  type        = string
+  sensitive   = true
 }

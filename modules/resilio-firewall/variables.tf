@@ -17,6 +17,11 @@ variable "project_name" {
   type        = string
 }
 
+variable "suffix" {
+  description = "Global suffix shared across all resources (from random_id.global_suffix)"
+  type        = string
+}
+
 variable "tags" {
   description = "Set of tags to apply to all resources"
   type        = list(string)

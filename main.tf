@@ -16,6 +16,49 @@
 
 # main.tf
 
+# Generate a global unique suffix shared across all resources
+# This ensures all VMs, firewalls, and related resources have the same identifier
+resource "random_id" "global_suffix" {
+  byte_length = 4
+
+  keepers = {
+    # Regenerate if project name changes
+    project_name = var.project_name
+  }
+}
+
+# ACME provider registration for Let's Encrypt
+resource "tls_private_key" "acme_account" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "acme_registration" "resilio" {
+  account_key_pem = tls_private_key.acme_account.private_key_pem
+  email_address   = "admin@${var.tld}"
+}
+
+# Let's Encrypt wildcard certificate for all Resilio instances
+resource "acme_certificate" "resilio" {
+  account_key_pem          = acme_registration.resilio.account_key_pem
+  common_name              = "${var.project_name}.${var.tld}"
+  subject_alternative_names = [
+    "*.${var.project_name}.${var.tld}",
+    # Add each region-specific subdomain
+    for region in var.regions : "${var.project_name}.${region}.${var.tld}"
+  ]
+
+  dns_challenge {
+    provider = "linode"
+    config = {
+      LINODE_TOKEN = var.linode_token
+    }
+  }
+
+  # Renew when less than 30 days remain
+  min_days_remaining = 30
+}
+
 # Create per-folder data volumes for each region
 # Each folder in resilio_folders gets its own independent volume
 module "storage_volumes" {
@@ -35,6 +78,7 @@ module "jumpbox_firewall" {
   source = "./modules/jumpbox-firewall"
 
   project_name = var.project_name
+  suffix       = random_id.global_suffix.hex # Use global suffix
   # Use auto-detected IP if allowed_ssh_cidr is not specified
   allowed_ssh_cidr = var.allowed_ssh_cidr != null ? var.allowed_ssh_cidr : local.current_ip_cidr
   tags             = local.tags # Concat tags and tld
@@ -52,6 +96,7 @@ module "resilio_firewall" {
   jumpbox_ipv6 = null
 
   project_name = var.project_name
+  suffix       = random_id.global_suffix.hex # Use global suffix
   tags         = local.tags # Concat tags and tld
 }
 
@@ -63,6 +108,7 @@ module "jumpbox" {
   instance_type  = var.jumpbox_instance_type
   ssh_public_key = var.ssh_public_key
   project_name   = var.project_name
+  suffix         = random_id.global_suffix.hex # Use global suffix
   firewall_id    = module.jumpbox_firewall.firewall_id
   tags           = local.tags
 }
@@ -76,6 +122,7 @@ module "linode_instances" {
   instance_type          = var.instance_type # "g6-standard-2"
   ssh_public_key         = var.ssh_public_key
   project_name           = var.project_name # "resilio-sync"
+  suffix                 = random_id.global_suffix.hex # Use global suffix
 
   # Per-folder volume configuration (new)
   resilio_folders = var.resilio_folders       # Map of folder names to {key, size}
@@ -91,6 +138,11 @@ module "linode_instances" {
   tld                    = var.tld
 
   firewall_id = module.resilio_firewall.firewall_id # Attach resilio firewall during creation
+
+  # SSL certificate from Let's Encrypt
+  ssl_certificate     = acme_certificate.resilio.certificate_pem
+  ssl_private_key     = acme_certificate.resilio.private_key_pem
+  ssl_issuer_cert     = acme_certificate.resilio.issuer_pem
 
   # Object Storage for backups
   object_storage_access_key = var.object_storage_access_key
@@ -184,6 +236,15 @@ resource "terraform_data" "update_resilio_firewall" {
       }
     },
     {
+      "label": "jumpbox-to-resilio-webui",
+      "action": "ACCEPT",
+      "protocol": "TCP",
+      "ports": "8888",
+      "addresses": {
+        "ipv4": ["$${JUMPBOX_IP}/32"]
+      }
+    },
+    {
       "label": "jumpbox-to-resilio-ping",
       "action": "ACCEPT",
       "protocol": "ICMP",
@@ -238,6 +299,7 @@ RULES_EOF
         echo ""
         echo "Applied rules:"
         echo "   • Allow SSH (ports 22, 2022) from jumpbox: $${JUMPBOX_IP}"
+        echo "   • Allow HTTPS Web UI (port 8888) from jumpbox: $${JUMPBOX_IP}"
         echo "   • Allow ICMP from jumpbox: $${JUMPBOX_IP}"
         echo "   • Allow all TCP traffic between Resilio instances"
         echo "   • Allow all UDP traffic between Resilio instances"

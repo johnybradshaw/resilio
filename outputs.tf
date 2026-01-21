@@ -74,3 +74,18 @@ output "firewall_configuration" {
   description = "Firewall configuration status"
   value       = "✅ Two separate firewalls configured: jumpbox-firewall (static rules) and resilio-firewall (auto-updated via Linode API)"
 }
+
+output "global_suffix" {
+  description = "Global suffix shared across all VMs and resources (useful for identifying related resources)"
+  value       = random_id.global_suffix.hex
+}
+
+output "ssl_certificate_domains" {
+  description = "Domains covered by the SSL certificate"
+  value       = acme_certificate.resilio.certificate_domain
+}
+
+output "ssl_certificate_expiry" {
+  description = "SSL certificate expiry date"
+  value       = acme_certificate.resilio.certificate_not_after
+}

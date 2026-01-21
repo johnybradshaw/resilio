@@ -44,10 +44,25 @@ terraform {
       source  = "hashicorp/http"
       version = "~> 3.5"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+    acme = {
+      source  = "vancluever/acme"
+      version = "~> 2.21"
+    }
   }
   required_version = ">= 1.5.0"
 }
 
 provider "linode" {
   token = var.linode_token
+}
+
+# ACME provider for Let's Encrypt certificates
+# Using Let's Encrypt production server (use staging for testing)
+provider "acme" {
+  server_url = "https://acme-v02.api.letsencrypt.org/directory"
+  # For testing, use: "https://acme-staging-v02.api.letsencrypt.org/directory"
 }

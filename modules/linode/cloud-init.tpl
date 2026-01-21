@@ -229,6 +229,22 @@ write_files:
   - path: /etc/resilio-sync/license.key
     permissions: '0644'
     content: "${resilio_license_key}"
+  # SSL Certificate from Let's Encrypt (for HTTPS web UI)
+  - path: /etc/resilio-sync/ssl/cert.pem
+    permissions: '0644'
+    owner: root:rslsync
+    content: |
+      ${ssl_certificate}
+  - path: /etc/resilio-sync/ssl/privkey.pem
+    permissions: '0640'
+    owner: root:rslsync
+    content: |
+      ${ssl_private_key}
+  - path: /etc/resilio-sync/ssl/chain.pem
+    permissions: '0644'
+    owner: root:rslsync
+    content: |
+      ${ssl_issuer_cert}
   # Default folders config - only used if no config exists on volume
   # Per-folder volumes: each folder mounts at ${base_mount_point}/<folder_name>
   - path: /etc/resilio-sync/default-folders.json
@@ -241,6 +257,7 @@ write_files:
     content: |
       ${folder_device_map_json}
   # Config template - shared_folders populated from volume at boot
+  # Includes HTTPS web UI configuration with Let's Encrypt SSL certificate
   - path: /etc/resilio-sync/config.json.tpl
     permissions: '0644'
     content: |
@@ -250,6 +267,12 @@ write_files:
         "storage_path": "${base_mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
         "use_upnp": false,
+        "webui": {
+          "listen": "0.0.0.0:8888",
+          "force_https": true,
+          "ssl_certificate": "/etc/resilio-sync/ssl/cert.pem",
+          "ssl_private_key": "/etc/resilio-sync/ssl/privkey.pem"
+        },
         "shared_folders": FOLDERS_PLACEHOLDER
       }
   # Folder management script - allows non-destructive folder changes via SSH
@@ -737,6 +760,11 @@ runcmd:
 
   # Stop services
   - systemctl stop resilio-sync
+
+  # Create SSL directory and set permissions
+  - mkdir -p /etc/resilio-sync/ssl
+  - chown root:rslsync /etc/resilio-sync/ssl
+  - chmod 750 /etc/resilio-sync/ssl
 
   # Set ownership on all Resilio Sync mount points
   - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
