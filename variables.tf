@@ -127,6 +127,13 @@ variable "create_domain" {
   default     = false # Default to false since most users will have existing domains
 }
 
+variable "acme_server_url" {
+  description = "ACME server URL for Let's Encrypt certificates. Use staging for testing to avoid rate limits."
+  type        = string
+  default     = "https://acme-v02.api.letsencrypt.org/directory"
+  # Staging URL: "https://acme-staging-v02.api.letsencrypt.org/directory"
+}
+
 variable "tags" {
   description = "Set of tags to apply to all resources"
   type        = list(string)

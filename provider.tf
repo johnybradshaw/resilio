@@ -61,8 +61,7 @@ provider "linode" {
 }
 
 # ACME provider for Let's Encrypt certificates
-# Using Let's Encrypt production server (use staging for testing)
+# Default: production. Set var.acme_server_url to staging for testing.
 provider "acme" {
-  server_url = "https://acme-v02.api.letsencrypt.org/directory"
-  # For testing, use: "https://acme-staging-v02.api.letsencrypt.org/directory"
+  server_url = var.acme_server_url
 }
