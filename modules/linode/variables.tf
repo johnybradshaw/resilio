@@ -116,9 +116,48 @@ variable "object_storage_bucket" {
 }
 
 variable "enable_backup" {
-  description = "Whether to enable Object Storage backups on this instance"
+  description = "[LEGACY] Whether to enable Object Storage backups on this instance"
   type        = bool
   default     = false
+}
+
+# New backup configuration object
+variable "backup_config" {
+  description = "Backup configuration object with all backup settings"
+  type = object({
+    enabled          = bool
+    mode             = string # "scheduled", "realtime", or "hybrid"
+    schedule         = string # Cron schedule
+    transfers        = number # Parallel transfers
+    bandwidth_limit  = string # e.g., "10M" or ""
+    versioning       = bool
+    retention_days   = number
+    access_key       = string
+    secret_key       = string
+    primary_endpoint = string
+    primary_bucket   = string
+    all_buckets      = map(object({
+      name     = string
+      cluster  = string
+      endpoint = string
+      hostname = string
+    }))
+  })
+  sensitive = true
+  default = {
+    enabled          = false
+    mode             = "scheduled"
+    schedule         = "0 2 * * *"
+    transfers        = 8
+    bandwidth_limit  = ""
+    versioning       = true
+    retention_days   = 90
+    access_key       = ""
+    secret_key       = ""
+    primary_endpoint = ""
+    primary_bucket   = ""
+    all_buckets      = {}
+  }
 }
 
 # SSL certificate variables for Resilio HTTPS

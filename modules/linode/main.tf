@@ -82,15 +82,31 @@ resource "linode_instance" "resilio" {
       tld                    = var.tld
       ubuntu_advantage_token = var.ubuntu_advantage_token
       base_mount_point       = "/mnt/resilio-data"
+      # Legacy backup variables (for backward compatibility)
       object_storage_access_key = var.object_storage_access_key
       object_storage_secret_key = var.object_storage_secret_key
       object_storage_endpoint   = var.object_storage_endpoint
       object_storage_bucket     = var.object_storage_bucket
       enable_backup             = var.enable_backup
+      # New backup configuration
+      backup_config_json = jsonencode({
+        enabled          = var.backup_config.enabled
+        mode             = var.backup_config.mode
+        schedule         = var.backup_config.schedule
+        transfers        = var.backup_config.transfers
+        bandwidth_limit  = var.backup_config.bandwidth_limit
+        versioning       = var.backup_config.versioning
+        retention_days   = var.backup_config.retention_days
+        primary_endpoint = var.backup_config.primary_endpoint
+        primary_bucket   = var.backup_config.primary_bucket
+        all_buckets      = var.backup_config.all_buckets
+      })
+      backup_access_key = var.backup_config.access_key
+      backup_secret_key = var.backup_config.secret_key
       # SSL certificate for HTTPS
-      ssl_certificate     = var.ssl_certificate
-      ssl_private_key     = var.ssl_private_key
-      ssl_issuer_cert     = var.ssl_issuer_cert
+      ssl_certificate = var.ssl_certificate
+      ssl_private_key = var.ssl_private_key
+      ssl_issuer_cert = var.ssl_issuer_cert
     }))
   }
 

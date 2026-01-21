@@ -112,6 +112,7 @@ packages:
   # Utilities
   - ncdu # disk usage
   - rclone # backup to object storage
+  - inotify-tools # realtime file change monitoring for backups
 
 # User Management
 users:
@@ -180,6 +181,30 @@ write_files:
         su root root
         daily
         rotate 7
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
+
+      # Resilio realtime backup watcher log
+      /var/log/resilio-backup-watch.log {
+        su root root
+        daily
+        rotate 7
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
+
+      # Resilio rehydration log
+      /var/log/resilio-rehydrate.log {
+        su root root
+        weekly
+        rotate 4
         compress
         delaycompress
         missingok
@@ -531,65 +556,344 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # Resilio backup script - backs up all per-folder volumes
+  # Backup configuration file
+  - path: /etc/resilio-sync/backup-config.json
+    permissions: '0600'
+    content: |
+      ${backup_config_json}
+
+  # Enhanced backup script - supports versioning, multi-region, and smart scheduling
   - path: /usr/local/bin/resilio-backup.sh
     permissions: '0755'
     content: |
       #!/bin/bash
       set -euo pipefail
-      D=$(date +%Y%m%d-%H%M%S)
-      H=$(hostname -f)
-      L="/var/log/resilio-backup.log"
+
+      # Configuration
+      CONFIG_FILE="/etc/resilio-sync/backup-config.json"
       DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
-      BUCKET="${object_storage_bucket}"
+      BASE_MOUNT="${base_mount_point}"
+      LOG_FILE="/var/log/resilio-backup.log"
+      LOCK_FILE="/var/run/resilio-backup.lock"
 
-      log() { echo "[$D] $1" | tee -a "$L"; }
-
-      log "Starting backup of all folders"
-
-      # Check if device map exists
-      if [ ! -f "$DEVICE_MAP" ]; then
-        log "No device map found, falling back to base mount"
-        rclone sync "${base_mount_point}" "r:$BUCKET/$H" \
-          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
-          --transfers 8 --log-file="$L" --log-level INFO
-        exit $?
+      # Read config
+      if [ -f "$CONFIG_FILE" ]; then
+        TRANSFERS=$(jq -r '.transfers // 8' "$CONFIG_FILE")
+        BANDWIDTH=$(jq -r '.bandwidth_limit // ""' "$CONFIG_FILE")
+        RETENTION_DAYS=$(jq -r '.retention_days // 90' "$CONFIG_FILE")
+        VERSIONING=$(jq -r '.versioning // true' "$CONFIG_FILE")
+      else
+        TRANSFERS=8
+        BANDWIDTH=""
+        RETENTION_DAYS=90
+        VERSIONING=true
       fi
 
-      # Backup each folder volume separately
+      # Build rclone options
+      RCLONE_OPTS="--transfers $TRANSFERS --log-file=$LOG_FILE --log-level INFO"
+      RCLONE_OPTS="$RCLONE_OPTS --exclude '.sync/StreamsList' --exclude '.sync/DownloadState' --exclude '*.!sync'"
+      [ -n "$BANDWIDTH" ] && RCLONE_OPTS="$RCLONE_OPTS --bwlimit $BANDWIDTH"
+
+      # Logging helper
+      log() {
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+      }
+
+      # Acquire lock to prevent concurrent backups
+      exec 200>"$LOCK_FILE"
+      if ! flock -n 200; then
+        log "Another backup is already running, exiting"
+        exit 0
+      fi
+
+      # Get hostname for backup path
+      HOSTNAME=$(hostname -f)
+
+      log "=== Starting backup ==="
+      log "Host: $HOSTNAME"
+      log "Transfers: $TRANSFERS, Bandwidth: $${BANDWIDTH:-unlimited}"
+      log "Versioning: $VERSIONING, Retention: $RETENTION_DAYS days"
+
+      # Get list of rclone remotes (backup destinations)
+      REMOTES=$(rclone listremotes 2>/dev/null | grep -E '^(r|backup-)' || echo "r:")
+
+      # Determine sync command based on versioning
+      if [ "$VERSIONING" = "true" ]; then
+        SYNC_CMD="copy"  # Use copy to preserve versions
+        log "Using copy mode (versioning enabled)"
+      else
+        SYNC_CMD="sync"  # Use sync for exact mirror
+        log "Using sync mode (versioning disabled)"
+      fi
+
       ERRORS=0
-      jq -r 'to_entries[] | "\(.key) \(.value.mount_point)"' "$DEVICE_MAP" | \
-      while read -r FOLDER_NAME MOUNT_POINT; do
+
+      # Backup each folder
+      if [ -f "$DEVICE_MAP" ]; then
+        FOLDERS=$(jq -r 'to_entries[] | "\(.key)|\(.value.mount_point)"' "$DEVICE_MAP")
+      else
+        # Fallback to single base mount
+        FOLDERS="data|$BASE_MOUNT"
+      fi
+
+      echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
+        [ -z "$FOLDER_NAME" ] && continue
+
         log "Backing up folder: $FOLDER_NAME from $MOUNT_POINT"
-        if rclone sync "$MOUNT_POINT" "r:$BUCKET/$H/$FOLDER_NAME" \
-          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
-          --transfers 8 --log-file="$L" --log-level INFO; then
-          log "Backup complete: $FOLDER_NAME"
+
+        # Backup to each remote
+        for REMOTE in $REMOTES; do
+          REMOTE_NAME=$(echo "$REMOTE" | tr -d ':')
+          BUCKET=$(rclone config show "$REMOTE_NAME" 2>/dev/null | grep -E '^bucket' | cut -d= -f2 | tr -d ' ' || echo "${object_storage_bucket}")
+          [ -z "$BUCKET" ] && BUCKET="${object_storage_bucket}"
+
+          DEST="$REMOTE$BUCKET/$HOSTNAME/$FOLDER_NAME"
+          log "  -> $DEST"
+
+          if eval rclone $SYNC_CMD "$MOUNT_POINT" "$DEST" $RCLONE_OPTS; then
+            log "  Backup complete to $REMOTE_NAME"
+          else
+            log "  ERROR: Backup failed to $REMOTE_NAME"
+            ERRORS=$((ERRORS + 1))
+          fi
+        done
+      done
+
+      # Cleanup old versions (only if retention is set)
+      if [ "$RETENTION_DAYS" -gt 0 ]; then
+        log "Cleaning up files older than $RETENTION_DAYS days..."
+        for REMOTE in $REMOTES; do
+          REMOTE_NAME=$(echo "$REMOTE" | tr -d ':')
+          BUCKET=$(rclone config show "$REMOTE_NAME" 2>/dev/null | grep -E '^bucket' | cut -d= -f2 | tr -d ' ' || echo "${object_storage_bucket}")
+          [ -z "$BUCKET" ] && BUCKET="${object_storage_bucket}"
+
+          rclone delete "$REMOTE$BUCKET/$HOSTNAME" --min-age "$${RETENTION_DAYS}d" >> "$LOG_FILE" 2>&1 || true
+        done
+      fi
+
+      log "=== Backup complete (errors: $ERRORS) ==="
+      exit $ERRORS
+
+  # Rehydration script - restore from backup to new/rebuilt VMs
+  - path: /usr/local/bin/resilio-rehydrate.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      # Configuration
+      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
+      BASE_MOUNT="${base_mount_point}"
+      LOG_FILE="/var/log/resilio-rehydrate.log"
+
+      log() {
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+      }
+
+      usage() {
+        echo "Usage: $0 [options]"
+        echo ""
+        echo "Restore data from Object Storage backup to this VM."
+        echo "Use this to quickly rehydrate a new or rebuilt VM."
+        echo ""
+        echo "Options:"
+        echo "  -s, --source HOSTNAME   Source hostname to restore from (default: auto-detect)"
+        echo "  -f, --folder NAME       Only restore specific folder (default: all)"
+        echo "  -r, --remote NAME       Rclone remote to restore from (default: r:)"
+        echo "  -l, --list              List available backups"
+        echo "  -n, --dry-run           Show what would be restored without making changes"
+        echo "  -h, --help              Show this help"
+        echo ""
+        echo "Examples:"
+        echo "  $0 --list                           # List available backups"
+        echo "  $0                                  # Restore all folders from most recent"
+        echo "  $0 --source old-server.example.com # Restore from specific host"
+        echo "  $0 --folder documents              # Restore only documents folder"
+        echo "  $0 --dry-run                       # Preview restore operation"
+      }
+
+      # Parse arguments
+      SOURCE_HOST=""
+      FOLDER_FILTER=""
+      REMOTE="r:"
+      DRY_RUN=""
+      LIST_ONLY=""
+
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          -s|--source) SOURCE_HOST="$2"; shift 2 ;;
+          -f|--folder) FOLDER_FILTER="$2"; shift 2 ;;
+          -r|--remote) REMOTE="$2:"; shift 2 ;;
+          -l|--list) LIST_ONLY="1"; shift ;;
+          -n|--dry-run) DRY_RUN="--dry-run"; shift ;;
+          -h|--help) usage; exit 0 ;;
+          *) echo "Unknown option: $1"; usage; exit 1 ;;
+        esac
+      done
+
+      BUCKET="${object_storage_bucket}"
+
+      # List available backups
+      if [ -n "$LIST_ONLY" ]; then
+        log "Available backups in $REMOTE$BUCKET:"
+        rclone lsd "$REMOTE$BUCKET" 2>/dev/null | awk '{print "  " $NF}'
+        exit 0
+      fi
+
+      # Auto-detect source host if not specified
+      if [ -z "$SOURCE_HOST" ]; then
+        # Try to find backups matching our project pattern
+        AVAILABLE=$(rclone lsd "$REMOTE$BUCKET" 2>/dev/null | awk '{print $NF}' | head -1)
+        if [ -z "$AVAILABLE" ]; then
+          log "ERROR: No backups found in $REMOTE$BUCKET"
+          log "Use --list to see available backups or --source to specify hostname"
+          exit 1
+        fi
+        SOURCE_HOST="$AVAILABLE"
+        log "Auto-detected source: $SOURCE_HOST"
+      fi
+
+      log "=== Starting rehydration ==="
+      log "Source: $REMOTE$BUCKET/$SOURCE_HOST"
+      log "Destination: $BASE_MOUNT"
+      [ -n "$DRY_RUN" ] && log "DRY RUN MODE - no changes will be made"
+
+      # Stop Resilio Sync during restore
+      log "Stopping Resilio Sync..."
+      systemctl stop resilio-sync || true
+
+      ERRORS=0
+
+      # Determine folders to restore
+      if [ -f "$DEVICE_MAP" ]; then
+        if [ -n "$FOLDER_FILTER" ]; then
+          FOLDERS="$FOLDER_FILTER|$(jq -r --arg f "$FOLDER_FILTER" '.[$f].mount_point // ""' "$DEVICE_MAP")"
         else
-          log "ERROR: Backup failed for $FOLDER_NAME"
+          FOLDERS=$(jq -r 'to_entries[] | "\(.key)|\(.value.mount_point)"' "$DEVICE_MAP")
+        fi
+      else
+        FOLDERS="data|$BASE_MOUNT"
+      fi
+
+      echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
+        [ -z "$FOLDER_NAME" ] && continue
+        [ -z "$MOUNT_POINT" ] && MOUNT_POINT="$BASE_MOUNT/$FOLDER_NAME"
+
+        SOURCE="$REMOTE$BUCKET/$SOURCE_HOST/$FOLDER_NAME"
+        log "Restoring: $SOURCE -> $MOUNT_POINT"
+
+        # Check if source exists
+        if ! rclone lsd "$SOURCE" &>/dev/null && ! rclone ls "$SOURCE" &>/dev/null 2>&1; then
+          log "  WARNING: Source $SOURCE not found, skipping"
+          continue
+        fi
+
+        # Ensure mount point exists
+        mkdir -p "$MOUNT_POINT"
+
+        # Restore data
+        if rclone copy "$SOURCE" "$MOUNT_POINT" $DRY_RUN \
+          --transfers 8 --log-file="$LOG_FILE" --log-level INFO \
+          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState"; then
+          log "  Restore complete"
+          [ -z "$DRY_RUN" ] && chown -R rslsync:rslsync "$MOUNT_POINT"
+        else
+          log "  ERROR: Restore failed"
           ERRORS=$((ERRORS + 1))
         fi
       done
 
-      # Cleanup old files
-      rclone delete "r:$BUCKET/$H" --min-age 30d >> "$L" 2>&1 || true
-
-      if [ "$ERRORS" -gt 0 ]; then
-        log "Backup completed with $ERRORS errors"
-        exit 1
-      else
-        log "Backup completed successfully"
+      # Restart Resilio Sync
+      if [ -z "$DRY_RUN" ]; then
+        log "Starting Resilio Sync..."
+        systemctl start resilio-sync
       fi
+
+      log "=== Rehydration complete (errors: $ERRORS) ==="
+      exit $ERRORS
+
+  # Realtime backup watcher (for realtime/hybrid backup modes)
+  - path: /usr/local/bin/resilio-backup-watch.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Watches for file changes and triggers incremental backups
+      # Used in realtime and hybrid backup modes
+
+      CONFIG_FILE="/etc/resilio-sync/backup-config.json"
+      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
+      BASE_MOUNT="${base_mount_point}"
+      LOG_FILE="/var/log/resilio-backup-watch.log"
+
+      log() {
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+      }
+
+      # Check if inotifywait is available
+      if ! command -v inotifywait &>/dev/null; then
+        log "ERROR: inotifywait not found. Install inotify-tools."
+        exit 1
+      fi
+
+      # Get folders to watch
+      if [ -f "$DEVICE_MAP" ]; then
+        WATCH_DIRS=$(jq -r '.[] | .mount_point' "$DEVICE_MAP" | tr '\n' ' ')
+      else
+        WATCH_DIRS="$BASE_MOUNT"
+      fi
+
+      log "Starting realtime backup watcher for: $WATCH_DIRS"
+
+      # Debounce: wait for changes to settle before backing up
+      DEBOUNCE_SECS=30
+      LAST_BACKUP=0
+
+      inotifywait -m -r -e modify,create,delete,move $WATCH_DIRS 2>/dev/null | while read -r DIR EVENT FILE; do
+        # Skip sync metadata files
+        [[ "$FILE" == *".sync"* ]] && continue
+        [[ "$FILE" == *".!sync"* ]] && continue
+
+        NOW=$(date +%s)
+        ELAPSED=$((NOW - LAST_BACKUP))
+
+        if [ $ELAPSED -ge $DEBOUNCE_SECS ]; then
+          log "Change detected: $DIR$FILE ($EVENT) - triggering backup"
+          /usr/local/bin/resilio-backup.sh &
+          LAST_BACKUP=$NOW
+        fi
+      done
+
+  # Systemd service for realtime backup watcher
+  - path: /etc/systemd/system/resilio-backup-watch.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Resilio Sync Realtime Backup Watcher
+      After=resilio-sync.service
+      Wants=resilio-sync.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/bin/resilio-backup-watch.sh
+      Restart=always
+      RestartSec=10
+      User=root
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # rclone configuration with all backup remotes
   - path: /root/.config/rclone/rclone.conf
     permissions: '0600'
     content: |
+      # Primary backup remote (legacy compatible)
       [r]
-      type=s3
-      provider=Ceph
-      access_key_id=${object_storage_access_key}
-      secret_access_key=${object_storage_secret_key}
-      endpoint=${object_storage_endpoint}
-      acl=private
+      type = s3
+      provider = Ceph
+      access_key_id = ${backup_access_key}
+      secret_access_key = ${backup_secret_key}
+      endpoint = ${object_storage_endpoint}
+      acl = private
 
   # Diagnostic script to collect all logs for troubleshooting
   - path: /usr/local/bin/collect-diagnostics.sh
@@ -833,13 +1137,60 @@ runcmd:
   - /usr/local/bin/volume-auto-expand.sh  # Run once now in case volume was pre-expanded
 
   - systemctl enable --now resilio-sync
-  # Only enable backup cron if this region is in backup_regions
+
+  # Configure backup based on mode (scheduled, realtime, or hybrid)
   - |
-    if [ "${enable_backup}" = "true" ] && [ "${object_storage_access_key}" != "CHANGEME" ]; then
-      echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
-      echo ">>> Backup enabled on this region"
+    CONFIG_FILE="/etc/resilio-sync/backup-config.json"
+    BACKUP_ENABLED="${enable_backup}"
+    ACCESS_KEY="${backup_access_key}"
+
+    # Check if backup is enabled and configured
+    if [ "$BACKUP_ENABLED" != "true" ] || [ -z "$ACCESS_KEY" ] || [ "$ACCESS_KEY" = "CHANGEME" ]; then
+      echo ">>> Backup disabled on this region (enable_backup=$BACKUP_ENABLED)"
+      exit 0
+    fi
+
+    # Read backup mode from config
+    if [ -f "$CONFIG_FILE" ]; then
+      BACKUP_MODE=$(jq -r '.mode // "scheduled"' "$CONFIG_FILE")
+      BACKUP_SCHEDULE=$(jq -r '.schedule // "0 2 * * *"' "$CONFIG_FILE")
     else
-      echo ">>> Backup disabled on this region (enable_backup=${enable_backup})"
+      BACKUP_MODE="scheduled"
+      BACKUP_SCHEDULE="0 2 * * *"
+    fi
+
+    echo ">>> Backup enabled: mode=$BACKUP_MODE, schedule=$BACKUP_SCHEDULE"
+
+    case "$BACKUP_MODE" in
+      scheduled)
+        # Traditional cron-based backup
+        echo "$BACKUP_SCHEDULE /usr/local/bin/resilio-backup.sh" | crontab -
+        echo ">>> Scheduled backup configured: $BACKUP_SCHEDULE"
+        ;;
+
+      realtime)
+        # Realtime inotify-based backup
+        systemctl enable --now resilio-backup-watch.service
+        echo ">>> Realtime backup watcher enabled"
+        ;;
+
+      hybrid)
+        # Both scheduled and realtime
+        echo "$BACKUP_SCHEDULE /usr/local/bin/resilio-backup.sh" | crontab -
+        systemctl enable --now resilio-backup-watch.service
+        echo ">>> Hybrid backup configured: scheduled + realtime"
+        ;;
+
+      *)
+        echo ">>> Unknown backup mode: $BACKUP_MODE, defaulting to scheduled"
+        echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
+        ;;
+    esac
+
+    # Run initial backup if this is a fresh install
+    if [ ! -f "/var/log/resilio-backup.log" ]; then
+      echo ">>> Running initial backup in background..."
+      nohup /usr/local/bin/resilio-backup.sh &>/dev/null &
     fi
 
   # Load audit rules

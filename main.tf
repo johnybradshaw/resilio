@@ -72,6 +72,74 @@ module "storage_volumes" {
   tags         = local.tags # Concat tags and tld
 }
 
+# =============================================================================
+# BACKUP OBJECT STORAGE
+# =============================================================================
+
+# Create and manage Object Storage buckets for backups (when backup_enabled = true)
+module "backup_storage" {
+  source = "./modules/object-storage"
+  count  = var.backup_enabled ? 1 : 0
+
+  project_name   = var.project_name
+  suffix         = random_id.global_suffix.hex
+  bucket_prefix  = var.backup_bucket_prefix
+  backup_regions = var.backup_storage_regions
+
+  enable_versioning = var.backup_versioning
+  retention_days    = var.backup_retention_days
+  tags              = local.tags
+}
+
+# Local values for backup configuration
+# Handles both Terraform-managed (backup_enabled=true) and legacy manual configuration
+locals {
+  # Determine effective backup configuration
+  backup_access_key = var.backup_enabled ? (
+    length(module.backup_storage) > 0 ? module.backup_storage[0].access_key : ""
+  ) : var.object_storage_access_key
+
+  backup_secret_key = var.backup_enabled ? (
+    length(module.backup_storage) > 0 ? module.backup_storage[0].secret_key : ""
+  ) : var.object_storage_secret_key
+
+  backup_buckets = var.backup_enabled ? (
+    length(module.backup_storage) > 0 ? module.backup_storage[0].buckets : {}
+  ) : {}
+
+  backup_primary_endpoint = var.backup_enabled ? (
+    length(module.backup_storage) > 0 ? module.backup_storage[0].primary_endpoint : ""
+  ) : var.object_storage_endpoint
+
+  backup_primary_bucket = var.backup_enabled ? (
+    length(module.backup_storage) > 0 ? module.backup_storage[0].primary_bucket.name : ""
+  ) : var.object_storage_bucket
+
+  # Determine which regions should run backups
+  # Use new variable if set, fall back to legacy variable
+  effective_backup_source_regions = length(var.backup_source_regions) > 0 ? var.backup_source_regions : var.backup_regions
+
+  # Backup configuration to pass to instances
+  backup_config = {
+    enabled           = var.backup_enabled || var.object_storage_access_key != "CHANGEME"
+    mode              = var.backup_mode
+    schedule          = var.backup_schedule
+    transfers         = var.backup_transfers
+    bandwidth_limit   = var.backup_bandwidth_limit
+    versioning        = var.backup_versioning
+    retention_days    = var.backup_retention_days
+    access_key        = local.backup_access_key
+    secret_key        = local.backup_secret_key
+    primary_endpoint  = local.backup_primary_endpoint
+    primary_bucket    = local.backup_primary_bucket
+    all_buckets       = local.backup_buckets
+  }
+}
+
+# =============================================================================
+# FIREWALLS
+# =============================================================================
+
 # Create separate firewalls for jumpbox and resilio instances
 # Jumpbox firewall - allows SSH from external network
 module "jumpbox_firewall" {
@@ -140,18 +208,32 @@ module "linode_instances" {
   firewall_id = module.resilio_firewall.firewall_id # Attach resilio firewall during creation
 
   # SSL certificate from Let's Encrypt
-  ssl_certificate     = acme_certificate.resilio.certificate_pem
-  ssl_private_key     = acme_certificate.resilio.private_key_pem
-  ssl_issuer_cert     = acme_certificate.resilio.issuer_pem
+  ssl_certificate = acme_certificate.resilio.certificate_pem
+  ssl_private_key = acme_certificate.resilio.private_key_pem
+  ssl_issuer_cert = acme_certificate.resilio.issuer_pem
 
-  # Object Storage for backups
-  object_storage_access_key = var.object_storage_access_key
-  object_storage_secret_key = var.object_storage_secret_key
-  object_storage_endpoint   = var.object_storage_endpoint
-  object_storage_bucket     = var.object_storage_bucket
+  # Backup configuration (Terraform-managed or legacy)
+  backup_config = {
+    enabled          = local.backup_config.enabled && contains(local.effective_backup_source_regions, each.key)
+    mode             = local.backup_config.mode
+    schedule         = local.backup_config.schedule
+    transfers        = local.backup_config.transfers
+    bandwidth_limit  = local.backup_config.bandwidth_limit
+    versioning       = local.backup_config.versioning
+    retention_days   = local.backup_config.retention_days
+    access_key       = local.backup_config.access_key
+    secret_key       = local.backup_config.secret_key
+    primary_endpoint = local.backup_config.primary_endpoint
+    primary_bucket   = local.backup_config.primary_bucket
+    all_buckets      = local.backup_config.all_buckets
+  }
 
-  # Only enable backups on specified regions to avoid redundant backups
-  enable_backup = contains(var.backup_regions, each.key)
+  # Legacy variables (deprecated, kept for compatibility)
+  object_storage_access_key = local.backup_access_key
+  object_storage_secret_key = local.backup_secret_key
+  object_storage_endpoint   = local.backup_primary_endpoint
+  object_storage_bucket     = local.backup_primary_bucket
+  enable_backup             = local.backup_config.enabled && contains(local.effective_backup_source_regions, each.key)
 
   tags = local.tags # Concat tags and tld
 }
