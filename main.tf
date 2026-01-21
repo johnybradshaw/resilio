@@ -27,6 +27,44 @@ resource "random_id" "global_suffix" {
   }
 }
 
+# =============================================================================
+# DNS DOMAIN
+# =============================================================================
+# Domain is created/referenced here (not in DNS module) to break circular dependency:
+# - ACME certificate needs domain to exist for DNS-01 challenge
+# - DNS module needs instance IPs for A/AAAA records
+# - Instances need ACME certificate for SSL
+
+# Create new domain (if create_domain = true)
+resource "linode_domain" "resilio" {
+  count = var.create_domain ? 1 : 0
+
+  type      = "master"
+  domain    = var.tld
+  soa_email = "admin@${var.tld}"
+  tags      = ["terraform", "dns", var.project_name]
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Use existing domain (if create_domain = false)
+data "linode_domain" "existing" {
+  count = var.create_domain ? 0 : 1
+
+  domain = var.tld
+}
+
+# Local for domain ID
+locals {
+  domain_id = var.create_domain ? linode_domain.resilio[0].id : data.linode_domain.existing[0].id
+}
+
+# =============================================================================
+# ACME / LET'S ENCRYPT SSL CERTIFICATES
+# =============================================================================
+
 # ACME provider registration for Let's Encrypt
 resource "tls_private_key" "acme_account" {
   algorithm = "RSA"
@@ -57,8 +95,8 @@ resource "acme_certificate" "resilio" {
   # Renew when less than 30 days remain
   min_days_remaining = 30
 
-  # Certificate depends on DNS domain existing first
-  depends_on = [module.dns]
+  # Certificate depends on DNS domain existing first (not the A/AAAA records)
+  depends_on = [linode_domain.resilio, data.linode_domain.existing]
 }
 
 # Create per-folder data volumes for each region
@@ -243,6 +281,9 @@ module "linode_instances" {
 module "dns" {
   source = "./modules/dns"
 
+  # Domain ID from domain created/referenced above
+  domain_id = local.domain_id
+
   # Map of DNS records keyed by region (static, known at plan time)
   dns_records = {
     for region, inst in module.linode_instances : region => {
@@ -251,10 +292,7 @@ module "dns" {
     }
   }
 
-  tld           = var.tld
-  create_domain = var.create_domain
-  project_name  = var.project_name
-  tags          = local.tags # Concat tags and tld
+  project_name = var.project_name
 }
 
 # Local values for firewall rule updates

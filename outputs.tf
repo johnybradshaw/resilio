@@ -39,13 +39,19 @@ output "resilio_firewall_id" {
 }
 
 output "domain_id" {
-  description = "ID of the created DNS domain"
-  value       = module.dns.domain_id
+  description = "ID of the DNS domain (created or existing)"
+  value       = local.domain_id
 }
 
 output "dns_nameservers" {
   description = "Nameservers for the DNS domain (configure these at your domain registrar)"
-  value       = module.dns.nameservers
+  value = [
+    "ns1.linode.com",
+    "ns2.linode.com",
+    "ns3.linode.com",
+    "ns4.linode.com",
+    "ns5.linode.com"
+  ]
 }
 
 output "ssh_connection_strings" {
