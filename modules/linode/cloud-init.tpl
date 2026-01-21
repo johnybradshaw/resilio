@@ -41,7 +41,8 @@ fs_setup:
 # Mount points
 mounts:
   # OS mounts
-  - [ LABEL=tmpdisk, /tmp, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
+  # Note: /tmp cannot have noexec - apt/gpg need to execute temp files for signature verification
+  - [ LABEL=tmpdisk, /tmp, ext4, "defaults,noatime,nosuid,nodev", "0", "2" ]
   - [ LABEL=logdisk, /var/log, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
   - [ LABEL=vartmpdisk, /var/tmp, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
   # Per-folder application mounts
