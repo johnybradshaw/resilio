@@ -57,7 +57,8 @@ terraform {
 }
 
 provider "linode" {
-  token = var.linode_token
+  token             = var.linode_token
+  obj_use_temp_keys = true # Generate temporary keys for Object Storage operations
 }
 
 # ACME provider for Let's Encrypt certificates
