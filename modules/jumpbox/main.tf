@@ -37,7 +37,7 @@ resource "linode_instance" "jumpbox" {
   interface_generation = "legacy_config" # Force legacy networking; new interfaces API returns 404 on some accounts
   # Configure the instance with cloud-init
   metadata {
-    user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
+    user_data = base64gzip(templatefile("${path.module}/cloud-init.tpl", {
       ssh_public_key = var.ssh_public_key
     }))
   }

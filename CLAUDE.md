@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance for Claude Code when working with this repository.
+This file provides guidance for AI assistants (such as Claude) when working with this repository.
 
 ## Project Overview
 
@@ -123,7 +123,7 @@ The project uses `for_each` with `toset(var.regions)` for multi-region deploymen
 
 ### Instance Recreation Triggers
 
-**WARNING**: The following variable changes will **DESTROY AND RECREATE** instances because they modify the `metadata.user_data` (cloud-init):
+**IMPORTANT**: The following variable changes affect `metadata.user_data` (cloud-init) and would *normally* trigger instance recreation:
 
 - `ssh_public_key`
 - `resilio_folder_keys` or `resilio_folder_key`
@@ -132,7 +132,11 @@ The project uses `for_each` with `toset(var.regions)` for multi-region deploymen
 - `ubuntu_advantage_token`
 - `object_storage_access_key`, `object_storage_secret_key`, `object_storage_endpoint`, `object_storage_bucket`
 
-**Also triggers recreation**:
+**However**, the `ignore_changes = [metadata]` lifecycle rule in `modules/linode/main.tf` **prevents automatic instance recreation** when these variables change. This is a safety feature to protect your data and prevent unintended downtime.
+
+To apply changes to these variables, you must perform an **explicit replacement** as detailed in the 'Forcing Instance Replacement' section below.
+
+**Variables that DO trigger recreation**:
 - `instance_type` changes (may recreate depending on Linode provider)
 - `region` changes (always recreates)
 - `project_name` changes (triggers new random_id)
@@ -295,7 +299,7 @@ sudo /usr/local/bin/volume-auto-expand.sh
 
 ### Firewall Rules Update
 
-The `terraform_data.update_resilio_firewall` resource in `main.tf:122` uses a local-exec provisioner to update firewall rules via Linode API after instances are created (avoids circular dependency).
+The `terraform_data.update_resilio_firewall` resource in `main.tf` uses a local-exec provisioner to update firewall rules via Linode API after instances are created (avoids circular dependency).
 
 ### Volume Lifecycle Protection
 
@@ -405,7 +409,7 @@ sudo resilio-folders apply
 ### Modifying Firewall Rules
 
 - Jumpbox firewall: `modules/jumpbox-firewall/main.tf`
-- Resilio firewall: `modules/resilio-firewall/main.tf` (initial rules) and `main.tf:122` (dynamic update via API)
+- Resilio firewall: `modules/resilio-firewall/main.tf` (initial rules) and `terraform_data.update_resilio_firewall` in `main.tf` (dynamic update via API)
 
 ## Documentation References
 
