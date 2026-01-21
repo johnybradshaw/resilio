@@ -56,6 +56,9 @@ resource "acme_certificate" "resilio" {
 
   # Renew when less than 30 days remain
   min_days_remaining = 30
+
+  # Certificate depends on DNS domain existing first
+  depends_on = [module.dns]
 }
 
 # Create per-folder data volumes for each region

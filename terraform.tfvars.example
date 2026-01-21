@@ -111,9 +111,16 @@ tags = ["deployment: terraform", "app: resilio", "environment: production"]
 # backup_enabled = true
 
 # Regions for backup storage destinations (where backups are stored)
-# Backups can be replicated to multiple regions for redundancy
-# Default: ["us-east"]
-# backup_storage_regions = ["us-east", "eu-west"]
+# IMPORTANT: Object Storage uses different region IDs than compute instances!
+# Compute regions: us-east, eu-west, ap-south, etc.
+# Object Storage regions: us-east-1, eu-central-1, ap-south-1, etc.
+# Valid Object Storage regions:
+#   us-east-1, us-southeast-1, us-iad-1, us-ord-1, us-sea-1 (Americas)
+#   eu-central-1, fr-par-1, se-sto-1 (Europe)
+#   ap-south-1, jp-osa-1, in-maa-1, id-cgk-1, au-mel-1 (Asia-Pacific)
+#   br-gru-1 (South America)
+# Default: ["us-east-1"]
+# backup_storage_regions = ["us-east-1", "eu-central-1"]
 
 # VM regions that should run backups (which VMs push to storage)
 # Only one region needed since all VMs have same data via Resilio Sync

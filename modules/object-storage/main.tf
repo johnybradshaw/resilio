@@ -42,11 +42,12 @@ resource "linode_object_storage_key" "backup" {
 # Local values for bucket endpoints
 locals {
   # Map of region to bucket details
+  # Object Storage region IDs already include the suffix (e.g., us-east-1)
   bucket_details = {
     for region, bucket in linode_object_storage_bucket.backup : region => {
       name     = bucket.label
-      cluster  = "${bucket.region}-1" # For endpoint compatibility
-      endpoint = "${bucket.region}-1.linodeobjects.com"
+      cluster  = bucket.region # Region ID is already in correct format (e.g., us-east-1)
+      endpoint = "${bucket.region}.linodeobjects.com"
       hostname = bucket.hostname
     }
   }
