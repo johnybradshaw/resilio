@@ -25,12 +25,14 @@ locals {
   # Map folder names to device letters (starting from sdc) - NON-SENSITIVE for dynamic block
   # sda = boot disk, sdb = tmp disk, sdc+ = data volumes
   # Device letters: c, d, e, f, g, h, i, j, k, l, m, n, o (13 max)
+  # IMPORTANT: ext4 filesystem labels are limited to 16 characters!
+  # Format: rs-{name} truncated to 16 chars (region not needed - unique per instance)
   folder_device_map_nonsensitive = {
     for idx, name in local.sorted_folder_names : name => {
       device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
       device_path = "/dev/sd${substr("cdefghijklmnop", idx, 1)}"
       partition   = "/dev/sd${substr("cdefghijklmnop", idx, 1)}1"
-      label       = "rs-${name}-${substr(var.region, 0, 6)}"
+      label       = substr("rs-${name}", 0, 16)
       mount_point = "/mnt/resilio-data/${name}"
       volume_id   = var.folder_volumes[name].id
     }
@@ -42,7 +44,7 @@ locals {
       device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
       device_path = "/dev/sd${substr("cdefghijklmnop", idx, 1)}"
       partition   = "/dev/sd${substr("cdefghijklmnop", idx, 1)}1"
-      label       = "rs-${name}-${substr(var.region, 0, 6)}"
+      label       = substr("rs-${name}", 0, 16)
       mount_point = "/mnt/resilio-data/${name}"
       volume_id   = var.folder_volumes[name].id
       key         = var.resilio_folders[name].key

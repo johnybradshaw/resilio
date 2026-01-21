@@ -602,6 +602,39 @@ runcmd:
   - [ systemctl, restart, nftables ]
   - [ bash, -c, "echo '--- nftables ruleset applied ---'" ]
 
+  # Fix filesystem labels if they don't match expected values
+  # This handles volumes created with old label formats (ext4 labels max 16 chars)
+  - |
+    echo "--- Checking and fixing filesystem labels ---"
+    FOLDER_MAP='${folder_device_map_json}'
+    for name in $(echo "$FOLDER_MAP" | jq -r 'keys[]'); do
+      partition=$(echo "$FOLDER_MAP" | jq -r --arg n "$name" '.[$n].partition')
+      expected_label=$(echo "$FOLDER_MAP" | jq -r --arg n "$name" '.[$n].label')
+      mount_point=$(echo "$FOLDER_MAP" | jq -r --arg n "$name" '.[$n].mount_point')
+
+      # Skip if partition doesn't exist
+      if [ ! -b "$partition" ]; then
+        echo "Partition $partition does not exist, skipping"
+        continue
+      fi
+
+      # Get current label
+      current_label=$(blkid -s LABEL -o value "$partition" 2>/dev/null || echo "")
+
+      if [ "$current_label" != "$expected_label" ]; then
+        echo "Relabeling $partition from '$current_label' to '$expected_label'"
+        e2label "$partition" "$expected_label"
+      fi
+
+      # Ensure mount point exists and mount if not already mounted
+      mkdir -p "$mount_point"
+      if ! mountpoint -q "$mount_point"; then
+        echo "Mounting $partition at $mount_point"
+        mount -t ext4 -o defaults,noatime,nosuid,nodev,noexec "LABEL=$expected_label" "$mount_point"
+      fi
+    done
+    echo "--- Filesystem label check complete ---"
+
   # Create directories - base mount and per-folder mounts
   - mkdir -p ${base_mount_point}/.sync
   - mkdir -p /var/log/resilio-sync

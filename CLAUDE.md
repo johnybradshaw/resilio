@@ -217,8 +217,11 @@ Each Resilio folder gets its own dedicated Linode volume, enabling:
 ```
 
 **Volume/Mount Naming:**
-- Volume label: `rs-{folder_name}-{region_prefix}` (e.g., `rs-documents-us-eas`)
+- Linode volume label: `rs-{folder_name}-{region_prefix}` (e.g., `rs-documents-us-eas`, max 32 chars)
+- Filesystem label: `rs-{folder_name}` truncated to 16 chars (ext4 limit)
 - Mount point: `/mnt/resilio-data/{folder_name}`
+
+**Important:** ext4 filesystem labels are limited to 16 characters. The cloud-init includes a fixup script that relabels filesystems on boot if they don't match the expected label.
 
 **Configuration in terraform.tfvars:**
 ```hcl
