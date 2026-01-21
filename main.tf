@@ -88,15 +88,15 @@ resource "acme_certificate" "resilio" {
   dns_challenge {
     provider = "linode"
     config = {
-      LINODE_TOKEN = var.linode_token
+      LINODE_TOKEN               = var.linode_token
+      LINODE_PROPAGATION_TIMEOUT = "1200" # 20 minutes for DNS propagation
+      LINODE_POLLING_INTERVAL    = "30"   # Check every 30 seconds
+      LINODE_TTL                 = "300"  # 5 minute TTL (Linode minimum)
     }
   }
 
   # Renew when less than 30 days remain
   min_days_remaining = 30
-
-  # Certificate depends on DNS domain existing first (not the A/AAAA records)
-  depends_on = [linode_domain.resilio, data.linode_domain.existing]
 }
 
 # Create per-folder data volumes for each region
