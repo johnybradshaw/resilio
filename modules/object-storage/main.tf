@@ -19,17 +19,13 @@ resource "linode_object_storage_bucket" "backup" {
   }
 }
 
-# Object Storage access key - one per bucket to avoid dynamic block provider bug
+# Object Storage access key (unlimited access)
+# TODO: Add bucket_access block when Linode provider bug is fixed
+# Bug: bucket_access causes "Provider produced inconsistent final plan" error
+# The provider sets cluster=UnknownVal internally even when only region is specified
+# Report at: https://github.com/linode/terraform-provider-linode/issues
 resource "linode_object_storage_key" "backup" {
-  for_each = linode_object_storage_bucket.backup
-
-  label = "${var.project_name}-backup-key-${each.key}-${var.suffix}"
-
-  bucket_access {
-    bucket_name = each.value.label
-    region      = each.value.region
-    permissions = "read_write"
-  }
+  label = "${var.project_name}-backup-key-${var.suffix}"
 }
 
 # Lifecycle policy for backup retention
