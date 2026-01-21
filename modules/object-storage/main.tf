@@ -19,19 +19,16 @@ resource "linode_object_storage_bucket" "backup" {
   }
 }
 
-# Object Storage access key with limited scope
-# This key only has access to the backup buckets
+# Object Storage access key - one per bucket to avoid dynamic block provider bug
 resource "linode_object_storage_key" "backup" {
-  label = "${var.project_name}-backup-key-${var.suffix}"
+  for_each = linode_object_storage_bucket.backup
 
-  # Grant read/write access to all backup buckets
-  dynamic "bucket_access" {
-    for_each = linode_object_storage_bucket.backup
-    content {
-      region      = bucket_access.value.region
-      bucket_name = bucket_access.value.label
-      permissions = "read_write"
-    }
+  label = "${var.project_name}-backup-key-${each.key}-${var.suffix}"
+
+  bucket_access {
+    bucket_name = each.value.label
+    region      = each.value.region
+    permissions = "read_write"
   }
 }
 

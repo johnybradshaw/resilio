@@ -1,15 +1,33 @@
 # modules/object-storage/outputs.tf
 
+# Primary key (for backward compatibility - uses first region alphabetically)
 output "access_key" {
-  description = "Object Storage access key ID"
-  value       = linode_object_storage_key.backup.access_key
+  description = "Primary Object Storage access key ID (first region)"
+  value       = linode_object_storage_key.backup[local.primary_region].access_key
   sensitive   = true
 }
 
 output "secret_key" {
-  description = "Object Storage secret access key"
-  value       = linode_object_storage_key.backup.secret_key
+  description = "Primary Object Storage secret key (first region)"
+  value       = linode_object_storage_key.backup[local.primary_region].secret_key
   sensitive   = true
+}
+
+# All keys by region
+output "access_keys" {
+  description = "Map of Object Storage access keys by region"
+  value = {
+    for region, key in linode_object_storage_key.backup : region => key.access_key
+  }
+  sensitive = true
+}
+
+output "secret_keys" {
+  description = "Map of Object Storage secret keys by region"
+  value = {
+    for region, key in linode_object_storage_key.backup : region => key.secret_key
+  }
+  sensitive = true
 }
 
 output "buckets" {
@@ -32,9 +50,11 @@ output "bucket_names" {
   value       = [for bucket in linode_object_storage_bucket.backup : bucket.label]
 }
 
-output "key_id" {
-  description = "Object Storage key ID (for management)"
-  value       = linode_object_storage_key.backup.id
+output "key_ids" {
+  description = "Map of Object Storage key IDs by region"
+  value = {
+    for region, key in linode_object_storage_key.backup : region => key.id
+  }
 }
 
 output "rclone_remotes" {
