@@ -641,7 +641,7 @@ runcmd:
   - chown rslsync:rslsync /var/log/resilio-sync
 
   # Activate Ubuntu Advantage
-  - pro enable esm-infra esm-apps livepatch usg
+  - pro enable esm-infra esm-apps livepatch
   - apt-get update
 
   # Load custom sysctl settings
@@ -650,7 +650,7 @@ runcmd:
   # Install additional packages without prompting
   - |
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      et resilio-sync usg jq cloud-guest-utils \
+      et resilio-sync jq cloud-guest-utils \
       -o Dpkg::Options::="--force-confdef" \
       -o Dpkg::Options::="--force-confold"
 
