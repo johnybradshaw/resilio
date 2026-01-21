@@ -3,7 +3,10 @@
 bootcmd:
   - sleep 2  # brief delay to let disks settle
   - blkid >> /var/log/cloud-init-blkid.log
-  - mkdir -p /tmp /var/log /var/tmp ${mount_point}
+  - mkdir -p /tmp /var/log /var/tmp ${base_mount_point}
+%{ for name, config in jsondecode(folder_device_map_json) ~}
+  - mkdir -p ${config.mount_point}
+%{ endfor ~}
   - chmod 1777 /tmp /var/tmp
   - apt-get update
   - apt-get install -y ca-certificates gnupg # Fix for https sources
@@ -19,26 +22,32 @@ disk_setup:
     table_type: gpt
     layout: [25, 50, 25] # /tmp, /var/log, /var/tmp
     overwrite: true
-  /dev/sdc:
+%{ for name, config in jsondecode(folder_device_map_json) ~}
+  ${config.device_path}:
     table_type: gpt
     layout: true
-    overwrite: false # Do not overwrite existing partitions
+    overwrite: false # Do not overwrite existing data volume
+%{ endfor ~}
 # formatting
 fs_setup:
   # OS disks
   - {device: /dev/sdb1, filesystem: ext4, label: tmpdisk, overwrite: true}
   - {device: /dev/sdb2, filesystem: ext4, label: logdisk, overwrite: true}
   - {device: /dev/sdb3, filesystem: ext4, label: vartmpdisk, overwrite: true}
-  # application data - NEVER overwrite to preserve existing data on volume
-  - {device: /dev/sdc1, filesystem: ext4, label: resilio, extra_opts: [ "-T", "news" ], overwrite: false}
+  # Per-folder data volumes - NEVER overwrite to preserve existing data
+%{ for name, config in jsondecode(folder_device_map_json) ~}
+  - {device: ${config.partition}, filesystem: ext4, label: ${config.label}, extra_opts: [ "-T", "news" ], overwrite: false}
+%{ endfor ~}
 # Mount points
 mounts:
   # OS mounts
   - [ LABEL=tmpdisk, /tmp, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
   - [ LABEL=logdisk, /var/log, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
   - [ LABEL=vartmpdisk, /var/tmp, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
-  # Application mounts
-  - [ LABEL=resilio, /mnt/resilio-data, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
+  # Per-folder application mounts
+%{ for name, config in jsondecode(folder_device_map_json) ~}
+  - [ LABEL=${config.label}, ${config.mount_point}, ext4, "defaults,noatime,nosuid,nodev,noexec", "0", "2" ]
+%{ endfor ~}
 
 # Set the hostname
 preserve_hostname: false
@@ -220,10 +229,16 @@ write_files:
     permissions: '0644'
     content: "${resilio_license_key}"
   # Default folders config - only used if no config exists on volume
+  # Per-folder volumes: each folder mounts at ${base_mount_point}/<folder_name>
   - path: /etc/resilio-sync/default-folders.json
     permissions: '0644'
     content: |
       ${resilio_folders_json}
+  # Folder device map - used by scripts to manage volumes
+  - path: /etc/resilio-sync/folder-device-map.json
+    permissions: '0644'
+    content: |
+      ${folder_device_map_json}
   # Config template - shared_folders populated from volume at boot
   - path: /etc/resilio-sync/config.json.tpl
     permissions: '0644'
@@ -231,19 +246,21 @@ write_files:
       {
         "device_name": "${device_name}.${tld}",
         "listening_port": 8889,
-        "storage_path": "${mount_point}/.sync",
+        "storage_path": "${base_mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
         "use_upnp": false,
         "shared_folders": FOLDERS_PLACEHOLDER
       }
   # Folder management script - allows non-destructive folder changes via SSH
+  # Per-folder volumes: each folder has its own volume and mount point
   - path: /usr/local/bin/resilio-folders
     permissions: '0755'
     content: |
       #!/bin/bash
       set -euo pipefail
-      MOUNT="${mount_point}"
-      FOLDERS_FILE="$MOUNT/.sync/folders.json"
+      BASE_MOUNT="${base_mount_point}"
+      FOLDERS_FILE="$BASE_MOUNT/.sync/folders.json"
+      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
       CONFIG_TPL="/etc/resilio-sync/config.json.tpl"
       CONFIG="/etc/resilio-sync/config.json"
 
@@ -261,43 +278,72 @@ write_files:
 
       case "$${1:-help}" in
         list)
-          echo "Current folders:"
-          cat "$FOLDERS_FILE" | jq -r '.[] | "  - \(.dir) [\(.secret[0:8])...]"'
+          echo "Configured folders (from Terraform):"
+          if [ -f "$DEVICE_MAP" ]; then
+            jq -r 'to_entries[] | "  - \(.key): \(.value.mount_point) (\(.value.device_path))"' "$DEVICE_MAP"
+          fi
+          echo ""
+          echo "Active Resilio folders:"
+          if [ -f "$FOLDERS_FILE" ]; then
+            jq -r '.[] | "  - \(.dir) [\(.secret[0:8])...]"' "$FOLDERS_FILE"
+          else
+            echo "  (no folders configured)"
+          fi
           ;;
         add)
           if [ -z "$${2:-}" ] || [ -z "$${3:-}" ]; then
-            echo "Usage: resilio-folders add <folder_key> <directory_name>"
+            echo "Usage: resilio-folders add <folder_key> <folder_name>"
             echo "Example: resilio-folders add BXXXXXXX... documents"
+            echo ""
+            echo "NOTE: For per-folder volumes, the folder must already be defined"
+            echo "in Terraform (resilio_folders variable). This command adds the"
+            echo "folder to Resilio's config for an existing mounted volume."
             exit 1
           fi
           KEY="$2"
-          DIR="$3"
-          FULL_PATH="$MOUNT/$DIR"
-          # Create directory if needed
-          mkdir -p "$FULL_PATH"
+          FOLDER_NAME="$3"
+          FULL_PATH="$BASE_MOUNT/$FOLDER_NAME"
+          # Verify mount point exists (should be pre-created by Terraform)
+          if [ ! -d "$FULL_PATH" ]; then
+            echo "Warning: $FULL_PATH does not exist. Creating..."
+            mkdir -p "$FULL_PATH"
+          fi
           chown rslsync:rslsync "$FULL_PATH"
           # Add to folders.json
           jq --arg key "$KEY" --arg dir "$FULL_PATH" \
-            '. += [{"secret": $key, "dir": $dir, "use_relay_server": true, "use_tracker": true, "search_lan": false, "use_sync_trash": false, "overwrite_changes": false, "selective_sync": false}]' \
+            '. += [{"secret": $key, "dir": $dir, "use_relay_server": true, "use_tracker": true, "search_lan": false, "use_sync_trash": true, "overwrite_changes": false, "selective_sync": false}]' \
             "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
           chown rslsync:rslsync "$FOLDERS_FILE"
           generate_config
-          echo "Added folder: $DIR"
+          echo "Added folder: $FOLDER_NAME"
           echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
           ;;
         remove)
           if [ -z "$${2:-}" ]; then
-            echo "Usage: resilio-folders remove <directory_name>"
+            echo "Usage: resilio-folders remove <folder_name>"
+            echo "Note: This removes the folder from Resilio config but keeps data"
             exit 1
           fi
-          DIR="$2"
-          FULL_PATH="$MOUNT/$DIR"
+          FOLDER_NAME="$2"
+          FULL_PATH="$BASE_MOUNT/$FOLDER_NAME"
           jq --arg dir "$FULL_PATH" 'map(select(.dir != $dir))' \
             "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
           chown rslsync:rslsync "$FOLDERS_FILE"
           generate_config
-          echo "Removed folder: $DIR (data NOT deleted)"
+          echo "Removed folder: $FOLDER_NAME (data NOT deleted)"
           echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
+          ;;
+        status)
+          echo "Volume Status:"
+          if [ -f "$DEVICE_MAP" ]; then
+            jq -r 'to_entries[] | .value | "\(.device_path) \(.label) \(.mount_point)"' "$DEVICE_MAP" | \
+            while read -r DEV LABEL MOUNT; do
+              SIZE=$(df -h "$MOUNT" 2>/dev/null | tail -1 | awk '{print $2}')
+              USED=$(df -h "$MOUNT" 2>/dev/null | tail -1 | awk '{print $3}')
+              AVAIL=$(df -h "$MOUNT" 2>/dev/null | tail -1 | awk '{print $4}')
+              echo "  $LABEL: $USED used / $SIZE total ($AVAIL available)"
+            done
+          fi
           ;;
         regenerate)
           generate_config
@@ -308,18 +354,21 @@ write_files:
           echo "Config applied and Resilio Sync restarted"
           ;;
         *)
-          echo "Resilio Sync Folder Manager"
+          echo "Resilio Sync Folder Manager (Per-Folder Volumes)"
           echo ""
           echo "Usage: resilio-folders <command> [args]"
           echo ""
           echo "Commands:"
-          echo "  list                     - List configured folders"
-          echo "  add <key> <dir>          - Add a new folder"
-          echo "  remove <dir>             - Remove a folder (keeps data)"
+          echo "  list                     - List configured folders and volumes"
+          echo "  status                   - Show volume disk usage"
+          echo "  add <key> <folder>       - Add a new folder to Resilio config"
+          echo "  remove <folder>          - Remove a folder (keeps data)"
           echo "  regenerate               - Regenerate config from folders.json"
           echo "  apply                    - Regenerate config and restart service"
           echo ""
-          echo "Folders config: $FOLDERS_FILE"
+          echo "Config files:"
+          echo "  Folders: $FOLDERS_FILE"
+          echo "  Device map: $DEVICE_MAP"
           ;;
       esac
 
@@ -336,60 +385,109 @@ write_files:
       -w /etc/cron.d/ -p wa -k cron_changes
       -w /var/log/wtmp -p wa -k logins
       -w /var/log/lastlog -p wa -k logins
-  # Volume auto-expand script - automatically grows filesystem when volume is resized
+  # Volume auto-expand script - automatically grows filesystem when volumes are resized
+  # Per-folder volumes: expands all resilio-* labeled volumes
   - path: /usr/local/bin/volume-auto-expand.sh
     permissions: '0755'
     content: |
       #!/bin/bash
-      # Automatically expand filesystem if volume has been resized
+      # Automatically expand filesystems if volumes have been resized
       # Runs on boot via systemd before resilio-sync starts
+      # Handles multiple per-folder volumes with label-based detection
       set -euo pipefail
 
-      DEVICE="/dev/sdc"
-      PARTITION="/dev/sdc1"
-      MOUNT="${mount_point}"
+      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
+      BASE_MOUNT="${base_mount_point}"
       LOG="/var/log/volume-expand.log"
 
       log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
 
-      # Check if partition exists
-      if [ ! -b "$PARTITION" ]; then
-        log "Partition $PARTITION not found, skipping expansion"
+      expand_volume() {
+        local DEVICE="$1"
+        local PARTITION="$2"
+        local LABEL="$3"
+        local EXPECTED_MOUNT="$4"
+
+        # Check if partition exists
+        if [ ! -b "$PARTITION" ]; then
+          log "[$LABEL] Partition $PARTITION not found, skipping"
+          return 0
+        fi
+
+        # DUAL VERIFICATION: Check both label AND mount point match expected values
+        # This prevents accidental expansion of wrong volumes
+        ACTUAL_LABEL=$(blkid -s LABEL -o value "$PARTITION" 2>/dev/null || echo "")
+        ACTUAL_MOUNT=$(findmnt -n -o TARGET "$PARTITION" 2>/dev/null || echo "")
+
+        if [ "$ACTUAL_LABEL" != "$LABEL" ]; then
+          log "[$LABEL] WARNING: Label mismatch - expected '$LABEL', found '$ACTUAL_LABEL'. Skipping."
+          return 1
+        fi
+
+        if [ -n "$ACTUAL_MOUNT" ] && [ "$ACTUAL_MOUNT" != "$EXPECTED_MOUNT" ]; then
+          log "[$LABEL] WARNING: Mount mismatch - expected '$EXPECTED_MOUNT', found '$ACTUAL_MOUNT'. Skipping."
+          return 1
+        fi
+
+        # Verify mount point is under our base directory (safety check)
+        if [[ "$EXPECTED_MOUNT" != "$BASE_MOUNT"/* ]]; then
+          log "[$LABEL] WARNING: Mount point $EXPECTED_MOUNT is not under $BASE_MOUNT. Skipping."
+          return 1
+        fi
+
+        # Get sizes in bytes
+        DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
+        PART_SIZE=$(blockdev --getsize64 "$PARTITION")
+
+        # Calculate difference (account for GPT overhead ~1MB)
+        DIFF=$((DEVICE_SIZE - PART_SIZE))
+        THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold
+
+        if [ "$DIFF" -gt "$THRESHOLD" ]; then
+          log "[$LABEL] Volume resize detected: device=$((DEVICE_SIZE/1024/1024))MB, partition=$((PART_SIZE/1024/1024))MB"
+          log "[$LABEL] Expanding partition..."
+
+          # Grow partition to fill device
+          if growpart "$DEVICE" 1; then
+            log "[$LABEL] Partition expanded successfully"
+          else
+            log "[$LABEL] ERROR: Failed to expand partition"
+            return 1
+          fi
+
+          # Resize filesystem (works online for ext4)
+          log "[$LABEL] Expanding filesystem..."
+          if resize2fs "$PARTITION"; then
+            NEW_SIZE=$(blockdev --getsize64 "$PARTITION")
+            log "[$LABEL] Filesystem expanded successfully: $((NEW_SIZE/1024/1024))MB"
+          else
+            log "[$LABEL] ERROR: Failed to expand filesystem"
+            return 1
+          fi
+        else
+          log "[$LABEL] No expansion needed: device and partition sizes match"
+        fi
+      }
+
+      log "Starting volume auto-expansion check..."
+
+      # Check if device map exists
+      if [ ! -f "$DEVICE_MAP" ]; then
+        log "No device map found at $DEVICE_MAP, skipping"
         exit 0
       fi
 
-      # Get sizes in bytes
-      DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
-      PART_SIZE=$(blockdev --getsize64 "$PARTITION")
-
-      # Calculate difference (account for GPT overhead ~1MB)
-      DIFF=$((DEVICE_SIZE - PART_SIZE))
-      THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold
-
-      if [ "$DIFF" -gt "$THRESHOLD" ]; then
-        log "Volume resize detected: device=$((DEVICE_SIZE/1024/1024))MB, partition=$((PART_SIZE/1024/1024))MB"
-        log "Expanding partition..."
-
-        # Grow partition to fill device
-        if growpart "$DEVICE" 1; then
-          log "Partition expanded successfully"
-        else
-          log "ERROR: Failed to expand partition"
-          exit 1
+      # Process each volume from the device map
+      ERRORS=0
+      jq -r 'to_entries[] | "\(.value.device_path) \(.value.partition) \(.value.label) \(.value.mount_point)"' "$DEVICE_MAP" | \
+      while read -r DEVICE PARTITION LABEL MOUNT; do
+        if ! expand_volume "$DEVICE" "$PARTITION" "$LABEL" "$MOUNT"; then
+          ERRORS=$((ERRORS + 1))
         fi
+      done
 
-        # Resize filesystem (works online for ext4)
-        log "Expanding filesystem..."
-        if resize2fs "$PARTITION"; then
-          NEW_SIZE=$(blockdev --getsize64 "$PARTITION")
-          log "Filesystem expanded successfully: $((NEW_SIZE/1024/1024))MB"
-        else
-          log "ERROR: Failed to expand filesystem"
-          exit 1
-        fi
-      else
-        log "No expansion needed: device and partition sizes match"
-      fi
+      log "Volume auto-expansion check complete"
+      exit 0
 
   # Systemd service for volume auto-expansion
   - path: /etc/systemd/system/volume-auto-expand.service
@@ -409,7 +507,7 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # Resilio backup script
+  # Resilio backup script - backs up all per-folder volumes
   - path: /usr/local/bin/resilio-backup.sh
     permissions: '0755'
     content: |
@@ -418,12 +516,46 @@ write_files:
       D=$(date +%Y%m%d-%H%M%S)
       H=$(hostname -f)
       L="/var/log/resilio-backup.log"
-      echo "[$D] Starting backup" | tee -a "$L"
-      rclone sync "${mount_point}" "r:${object_storage_bucket}/$H" \
-        --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
-        --transfers 8 --log-file="$L" --log-level INFO && \
-      echo "[$D] Backup done" | tee -a "$L" || echo "[$D] Backup failed" | tee -a "$L"
-      rclone delete "r:${object_storage_bucket}/$H" --min-age 30d >> "$L" 2>&1 || true
+      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
+      BUCKET="${object_storage_bucket}"
+
+      log() { echo "[$D] $1" | tee -a "$L"; }
+
+      log "Starting backup of all folders"
+
+      # Check if device map exists
+      if [ ! -f "$DEVICE_MAP" ]; then
+        log "No device map found, falling back to base mount"
+        rclone sync "${base_mount_point}" "r:$BUCKET/$H" \
+          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
+          --transfers 8 --log-file="$L" --log-level INFO
+        exit $?
+      fi
+
+      # Backup each folder volume separately
+      ERRORS=0
+      jq -r 'to_entries[] | "\(.key) \(.value.mount_point)"' "$DEVICE_MAP" | \
+      while read -r FOLDER_NAME MOUNT_POINT; do
+        log "Backing up folder: $FOLDER_NAME from $MOUNT_POINT"
+        if rclone sync "$MOUNT_POINT" "r:$BUCKET/$H/$FOLDER_NAME" \
+          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
+          --transfers 8 --log-file="$L" --log-level INFO; then
+          log "Backup complete: $FOLDER_NAME"
+        else
+          log "ERROR: Backup failed for $FOLDER_NAME"
+          ERRORS=$((ERRORS + 1))
+        fi
+      done
+
+      # Cleanup old files
+      rclone delete "r:$BUCKET/$H" --min-age 30d >> "$L" 2>&1 || true
+
+      if [ "$ERRORS" -gt 0 ]; then
+        log "Backup completed with $ERRORS errors"
+        exit 1
+      else
+        log "Backup completed successfully"
+      fi
   - path: /root/.config/rclone/rclone.conf
     permissions: '0600'
     content: |
@@ -459,7 +591,7 @@ write_files:
 
 # Run Commands
 runcmd:
-  # Disable and mask UFW in case it’s still present
+  # Disable and mask UFW in case it's still present
   - [ bash, -c, "echo '--- Disabling UFW (if installed) ---'" ]
   - [ systemctl, disable, ufw ]
   - [ systemctl, mask, ufw ]
@@ -470,8 +602,8 @@ runcmd:
   - [ systemctl, restart, nftables ]
   - [ bash, -c, "echo '--- nftables ruleset applied ---'" ]
 
-  # Create directories
-  - mkdir -p ${mount_point}/.sync
+  # Create directories - base mount and per-folder mounts
+  - mkdir -p ${base_mount_point}/.sync
   - mkdir -p /var/log/resilio-sync
   - chown rslsync:rslsync /var/log/resilio-sync
 
@@ -492,20 +624,37 @@ runcmd:
   # Stop services
   - systemctl stop resilio-sync
 
-  # Set ownership on Resilio Sync files/folders
-  - chown -R rslsync:rslsync ${mount_point} /etc/resilio-sync
+  # Set ownership on all Resilio Sync mount points
+  - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
 
-  # Initialize folder config from volume (preserves existing config across instance recreation)
+  # Initialize folder config from base mount (preserves existing config across instance recreation)
   - |
-    FOLDERS_FILE="${mount_point}/.sync/folders.json"
+    BASE_MOUNT="${base_mount_point}"
+    FOLDERS_FILE="$BASE_MOUNT/.sync/folders.json"
+    DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
+
+    # Ensure base .sync directory exists
+    mkdir -p "$BASE_MOUNT/.sync"
+
+    # Create or use existing folders config
     if [ ! -f "$FOLDERS_FILE" ]; then
       echo ">>> No existing folder config found — creating from defaults"
-      mkdir -p "${mount_point}/.sync"
       cp /etc/resilio-sync/default-folders.json "$FOLDERS_FILE"
       chown rslsync:rslsync "$FOLDERS_FILE"
     else
       echo ">>> Using existing folder config from $FOLDERS_FILE"
     fi
+
+    # Set ownership on each per-folder mount point
+    if [ -f "$DEVICE_MAP" ]; then
+      jq -r '.[] | .mount_point' "$DEVICE_MAP" | while read -r MOUNT; do
+        if [ -d "$MOUNT" ]; then
+          chown rslsync:rslsync "$MOUNT"
+          echo ">>> Set ownership on $MOUNT"
+        fi
+      done
+    fi
+
     # Generate config.json from template + volume-based folders
     FOLDERS=$(cat "$FOLDERS_FILE")
     sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl > /etc/resilio-sync/config.json
@@ -515,7 +664,7 @@ runcmd:
   # Create Resilio Sync identity and apply license
   # Create a new identity only if none exists
   - |
-    IDDIR=$(ls -d ${mount_point}/.sync/.SyncUser* 2>/dev/null | head -n1)
+    IDDIR=$(ls -d ${base_mount_point}/.sync/.SyncUser* 2>/dev/null | head -n1)
     if [ -z "$IDDIR" ]; then
       echo ">>> No existing identity found — creating one now"
       sudo -u rslsync /usr/bin/rslsync \
@@ -527,7 +676,7 @@ runcmd:
 
   # Apply the license only if no license folder exists in that identity
   - |
-    if ! find ${mount_point}/.sync/.SyncUser*/licenses -mindepth 1 -type d | grep -q .; then
+    if ! find ${base_mount_point}/.sync/.SyncUser*/licenses -mindepth 1 -type d | grep -q .; then
       echo ">>> No license found — applying license now"
       sudo -u rslsync /usr/bin/rslsync \
         --config /etc/resilio-sync/config.json \

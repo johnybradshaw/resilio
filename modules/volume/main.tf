@@ -1,12 +1,17 @@
 # modules/volume/main.tf
+# Creates one volume per folder with independent sizing
+
 resource "linode_volume" "storage" {
-  label  = "${var.project_name}-${var.region}-vol"
+  for_each = var.folders
+
+  label  = "${var.project_name}-${var.region}-${each.key}"
   region = var.region
-  size   = var.size
+  size   = each.value.size
   tags = concat(
     var.tags, [
-      "region: ${var.region}", # e.g. "region: us-east"
-      "service: blk"           # e.g. "service: storage"
+      "region: ${var.region}",
+      "service: blk",
+      "folder: ${each.key}"
     ]
   )
 
@@ -20,10 +25,9 @@ resource "linode_volume" "storage" {
 
     # IMPORTANT: Volume size can only be INCREASED, never decreased
     # Attempting to decrease volume size will require manual intervention
-    # To resize: 1) Update var.volume_size, 2) Run terraform apply
+    # To resize: 1) Update the folder's size in resilio_folders, 2) Run terraform apply
     # The volume will be expanded online without downtime
-    # After expansion, you must resize the filesystem manually:
-    #   sudo resize2fs /dev/disk/by-label/resilio
+    # Filesystem auto-expands on next boot via volume-auto-expand.service
   }
 
   # encryption = "enabled" # Not available in every region

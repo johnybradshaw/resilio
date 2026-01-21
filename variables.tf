@@ -16,19 +16,56 @@ variable "regions" {
   }
 }
 
+# New per-folder volume configuration (recommended)
+variable "resilio_folders" {
+  description = "Map of Resilio Sync folders with their keys and volume sizes. Each folder gets a dedicated volume."
+  type = map(object({
+    key  = string # Resilio folder key (sensitive)
+    size = number # Volume size in GB
+  }))
+  sensitive = true
+  default   = {}
+
+  validation {
+    condition = alltrue([
+      for name, config in var.resilio_folders :
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", name)) && length(name) >= 2 && length(name) <= 32
+    ])
+    error_message = "Folder names must be 2-32 characters, lowercase alphanumeric with hyphens (no leading/trailing hyphens)."
+  }
+
+  validation {
+    condition = alltrue([
+      for name, config in var.resilio_folders :
+      config.size >= 10 && config.size <= 10000
+    ])
+    error_message = "Volume size must be between 10 and 10000 GB."
+  }
+
+  validation {
+    condition = alltrue([
+      for name, config in var.resilio_folders :
+      length(config.key) >= 20
+    ])
+    error_message = "Resilio folder keys must be at least 20 characters."
+  }
+
+  validation {
+    condition     = length(keys(var.resilio_folders)) <= 13
+    error_message = "Maximum 13 folders per instance (limited by device letters)."
+  }
+}
+
+# [DEPRECATED] Legacy variables - use resilio_folders instead
 variable "resilio_folder_keys" {
-  description = "List of Resilio Sync folder keys to automatically add. Each folder key will be synced to a separate directory."
+  description = "[DEPRECATED] Use resilio_folders instead. List of Resilio Sync folder keys."
   type        = list(string)
   sensitive   = true
   default     = []
-
-  # Note: Validation removed to allow empty list when using deprecated resilio_folder_key variable
-  # Either resilio_folder_keys or resilio_folder_key must be provided
 }
 
-# Keep old variable for backward compatibility
 variable "resilio_folder_key" {
-  description = "[DEPRECATED] Use resilio_folder_keys instead. Single Resilio Sync folder key to automatically add."
+  description = "[DEPRECATED] Use resilio_folders instead. Single Resilio Sync folder key."
   type        = string
   sensitive   = true
   default     = ""
@@ -52,7 +89,7 @@ variable "instance_type" {
 }
 
 variable "volume_size" {
-  description = "Size of the storage volume in GB"
+  description = "[DEPRECATED] Use per-folder sizes in resilio_folders instead. Default size for legacy single-volume setup."
   type        = number
   default     = 20
 

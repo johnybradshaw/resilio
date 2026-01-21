@@ -89,7 +89,8 @@ Each module follows this pattern:
 
 Variables containing secrets are marked `sensitive = true`:
 - `linode_token`
-- `resilio_folder_keys`, `resilio_folder_key`
+- `resilio_folders` (contains folder keys)
+- `resilio_folder_keys`, `resilio_folder_key` (deprecated)
 - `resilio_license_key`
 - `ubuntu_advantage_token`
 - `object_storage_access_key`, `object_storage_secret_key`
@@ -146,7 +147,6 @@ The project uses `for_each` with `toset(var.regions)` for multi-region deploymen
 **AT RISK**:
 - If ALL instances are recreated simultaneously, sync is interrupted until instances come back online
 - Any data not yet synced to other regions or Object Storage backup will be lost
-- The cloud-init `fs_setup` at `modules/linode/cloud-init.tpl:33` has `overwrite: true` which could format the volume partition on recreation
 
 ### Safe Deployment Procedures
 
@@ -200,15 +200,53 @@ terraform apply -replace='module.linode_instances["us-east"].linode_instance.res
 terraform apply -replace='module.linode_instances["eu-west"].linode_instance.resilio'
 ```
 
+### Per-Folder Volumes Architecture
+
+Each Resilio folder gets its own dedicated Linode volume, enabling:
+- **Independent sizing**: Allocate storage based on each folder's needs
+- **Isolation**: Folder data on separate block devices
+- **Safe operations**: Volumes protected with `prevent_destroy = true`
+
+**Device Mapping:**
+```
+/dev/sda  → Boot disk
+/dev/sdb  → Temp disk (tmp, var/log, var/tmp)
+/dev/sdc  → First folder volume (alphabetically sorted)
+/dev/sdd  → Second folder volume
+...       → Up to 13 folders (sdc-sdo)
+```
+
+**Volume/Mount Naming:**
+- Volume label: `resilio-{folder_name}` (e.g., `resilio-documents`)
+- Mount point: `/mnt/resilio-data/{folder_name}`
+
+**Configuration in terraform.tfvars:**
+```hcl
+resilio_folders = {
+  documents = { key = "BXXXXXXX...", size = 50 }
+  photos    = { key = "BYYYYYYY...", size = 200 }
+  backups   = { key = "BZZZZZZ...", size = 500 }
+}
+```
+
+**Validation rules:**
+- Folder names: 2-32 characters, lowercase alphanumeric with hyphens
+- Volume size: 10-10000 GB
+- Key length: minimum 20 characters
+- Maximum 13 folders per instance (device letter limit)
+
 ### Resizing Volumes (Automatic Expansion)
 
 Volume resizing is **non-destructive** and automatic. The filesystem expands on next boot.
 
-**To increase volume size:**
+**To increase a folder's volume size:**
 
-1. Update `volume_size` in `terraform.tfvars`:
+1. Update the folder's size in `terraform.tfvars`:
    ```hcl
-   volume_size = 50  # Increase from current size
+   resilio_folders = {
+     documents = { key = "BXXXXXXX...", size = 100 }  # Increased from 50
+     photos    = { key = "BYYYYYYY...", size = 200 }
+   }
    ```
 
 2. Apply the change:
@@ -224,14 +262,22 @@ Volume resizing is **non-destructive** and automatic. The filesystem expands on 
 
 4. Verify expansion (after reboot):
    ```bash
-   df -h /mnt/resilio-data
+   # Check all folder volumes
+   sudo resilio-folders status
+
+   # Or check specific mount
+   df -h /mnt/resilio-data/documents
+
+   # View expansion logs
    cat /var/log/volume-expand.log
    ```
 
 **How it works:**
 - A systemd service (`volume-auto-expand.service`) runs on every boot
-- It compares block device size vs partition size
+- It iterates over all per-folder volumes from `/etc/resilio-sync/folder-device-map.json`
+- For each volume, it compares block device size vs partition size
 - If volume was resized, it runs `growpart` and `resize2fs` automatically
+- **Dual verification**: Checks both filesystem label AND mount point before expanding
 - Expansion happens before Resilio Sync starts
 - Logs are written to `/var/log/volume-expand.log`
 
@@ -283,41 +329,62 @@ ssh -J ac-user@<jumpbox-ip> ac-user@<resilio-instance-ip>
 
 Simply add the region code to the `regions` variable - the for_each pattern handles the rest.
 
-### Adding/Removing Resilio Folders (Non-Destructive)
+### Adding/Removing Resilio Folders
 
-Folder configuration is stored on the persistent volume at `/mnt/resilio-data/.sync/folders.json`. This allows folder changes **without recreating instances**.
+With per-folder volumes, each folder requires its own dedicated volume. Folder configuration is stored at `/mnt/resilio-data/.sync/folders.json`.
 
-**Via SSH (recommended for adding folders):**
+**Via Terraform (recommended for adding folders):**
+
+With per-folder volumes, you should add new folders via Terraform to create their volumes:
+
+1. Add the folder to `terraform.tfvars`:
+   ```hcl
+   resilio_folders = {
+     documents = { key = "BXXXXXXX...", size = 50 }
+     photos    = { key = "BYYYYYYY...", size = 200 }
+     new-folder = { key = "BZZZZZZZ...", size = 100 }  # New folder
+   }
+   ```
+
+2. Apply the change (creates volume only, no instance recreation):
+   ```bash
+   terraform apply
+   ```
+
+3. Force instance replacement to attach the new volume:
+   ```bash
+   # Replace one region at a time
+   terraform apply -replace='module.linode_instances["us-east"].linode_instance.resilio'
+   # Wait for sync, then next region
+   terraform apply -replace='module.linode_instances["eu-west"].linode_instance.resilio'
+   ```
+
+**Via SSH (for config changes on existing volumes):**
 
 ```bash
 # Connect to instance via jumpbox
 ssh -J ac-user@<jumpbox-ip> ac-user@<resilio-instance-ip>
 
-# List current folders
+# List current folders and volumes
 sudo resilio-folders list
 
-# Add a new folder
-sudo resilio-folders add "BXXXXXXXXX..." my-new-folder
+# Check volume disk usage
+sudo resilio-folders status
+
+# Add a folder to Resilio config (volume must already exist)
+sudo resilio-folders add "BXXXXXXXXX..." folder-name
 
 # Apply changes and restart Resilio
 sudo resilio-folders apply
 
-# Remove a folder (keeps data on disk)
-sudo resilio-folders remove my-folder
+# Remove a folder from config (keeps data on disk)
+sudo resilio-folders remove folder-name
 sudo resilio-folders apply
 ```
 
-**Via Terraform (initial deployment only):**
-
-Adding folders via `resilio_folder_keys` variable will only affect **new instances**. Existing instances use their volume-based config and won't be recreated (due to `ignore_changes = [metadata]`).
-
-To update existing instances after changing `resilio_folder_keys`:
-1. SSH to each instance and use `resilio-folders add`
-2. OR force instance replacement one region at a time:
-   ```bash
-   terraform apply -replace='module.linode_instances["us-east"].linode_instance.resilio'
-   # Wait for sync, then next region
-   ```
+**Note:** Removing a folder from Terraform will NOT delete the volume (protected by `prevent_destroy = true`). To fully remove:
+1. Remove from `terraform.tfvars`
+2. Manually delete the volume via Linode console or API
 
 ### Modifying Firewall Rules
 

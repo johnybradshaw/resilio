@@ -19,20 +19,42 @@ variable "project_name" {
   type        = string
 }
 
+# New per-folder volume configuration
+variable "resilio_folders" {
+  description = "Map of folder names to their configurations"
+  type = map(object({
+    key  = string
+    size = number
+  }))
+  sensitive = true
+}
+
+variable "folder_volumes" {
+  description = "Map of folder names to volume details (from volume module)"
+  type = map(object({
+    id     = number
+    label  = string
+    size   = number
+    region = string
+  }))
+}
+
+# [DEPRECATED] Legacy variables - kept for backward compatibility
 variable "volume_id" {
-  description = "ID of the volume to attach"
+  description = "[DEPRECATED] ID of the volume to attach (use folder_volumes instead)"
   type        = string
+  default     = null
 }
 
 variable "resilio_folder_keys" {
-  description = "List of Resilio Sync folder keys"
+  description = "[DEPRECATED] List of Resilio Sync folder keys (use resilio_folders instead)"
   type        = list(string)
   sensitive   = true
+  default     = []
 }
 
-# Keep old variable for backward compatibility
 variable "resilio_folder_key" {
-  description = "[DEPRECATED] Use resilio_folder_keys instead"
+  description = "[DEPRECATED] Use resilio_folders instead"
   type        = string
   sensitive   = true
   default     = ""

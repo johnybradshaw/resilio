@@ -13,20 +13,32 @@ resource "random_id" "instance" {
 
 locals {
   # Label format: resilio-sync-us-east-a1b2c3d4
-  # Uses hyphens (required) and adds unique suffix to avoid conflicts
   label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
 
-  # Support both old single key and new multiple keys for backward compatibility
-  folder_keys = var.resilio_folder_key != "" ? concat([var.resilio_folder_key], var.resilio_folder_keys) : var.resilio_folder_keys
+  # Sort folder names for consistent device ordering (alphabetically)
+  sorted_folder_names = sort(keys(var.resilio_folders))
 
-  # Validate that at least one folder key is provided
-  _validate_folder_keys = length(local.folder_keys) > 0 ? true : tobool("ERROR: At least one Resilio folder key must be provided via resilio_folder_keys or resilio_folder_key")
+  # Map folder names to device letters (starting from sdc)
+  # sda = boot disk, sdb = tmp disk, sdc+ = data volumes
+  # Device letters: c, d, e, f, g, h, i, j, k, l, m, n, o (13 max)
+  folder_device_map = {
+    for idx, name in local.sorted_folder_names : name => {
+      device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
+      device_path = "/dev/sd${substr("cdefghijklmnop", idx, 1)}"
+      partition   = "/dev/sd${substr("cdefghijklmnop", idx, 1)}1"
+      label       = "resilio-${name}"
+      mount_point = "/mnt/resilio-data/${name}"
+      volume_id   = var.folder_volumes[name].id
+      key         = var.resilio_folders[name].key
+      size        = var.resilio_folders[name].size
+    }
+  }
 
-  # Generate JSON configuration for shared folders
-  resilio_folders = [
-    for key in local.folder_keys : {
-      secret            = key
-      dir               = "/mnt/resilio-data/${key}"
+  # Generate Resilio folders JSON for cloud-init (for config.json)
+  resilio_folders_config = [
+    for name in local.sorted_folder_names : {
+      secret            = var.resilio_folders[name].key
+      dir               = "/mnt/resilio-data/${name}"
       use_relay_server  = true
       use_tracker       = true
       search_lan        = false
@@ -42,42 +54,34 @@ resource "linode_instance" "resilio" {
   type   = var.instance_type
   tags = concat(
     var.tags, [
-      "region: ${var.region}", # e.g. "region: us-east"
-      "service: lin"           # e.g. "service: linode"
+      "region: ${var.region}",
+      "service: lin"
     ]
   )
-  backups_enabled      = true            # Disable backups ([optional] and not available to managed customers)
-  interface_generation = "legacy_config" # Force legacy networking; new interfaces API returns 404 on some accounts
-  firewall_id          = var.firewall_id # Attach firewall during instance creation
-  # Don't set booted - let it default, config will control boot
+  backups_enabled      = true
+  interface_generation = "legacy_config"
+  firewall_id          = var.firewall_id
 
   # Apply user data (cloud-init)
-  metadata { # Requires base64encoding or errors
+  metadata {
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
-      device_name                = local.label
-      ssh_public_key             = var.ssh_public_key
-      volume_id                  = var.volume_id
-      resilio_folders_json       = jsonencode(local.resilio_folders)
-      resilio_license_key        = var.resilio_license_key
-      tld                        = var.tld
-      ubuntu_advantage_token     = var.ubuntu_advantage_token
-      mount_point                = "/mnt/resilio-data"
-      object_storage_access_key  = var.object_storage_access_key
-      object_storage_secret_key  = var.object_storage_secret_key
-      object_storage_endpoint    = var.object_storage_endpoint
-      object_storage_bucket      = var.object_storage_bucket
-      })
-    )
+      device_name               = local.label
+      ssh_public_key            = var.ssh_public_key
+      folder_device_map_json    = jsonencode(local.folder_device_map)
+      resilio_folders_json      = jsonencode(local.resilio_folders_config)
+      resilio_license_key       = var.resilio_license_key
+      tld                       = var.tld
+      ubuntu_advantage_token    = var.ubuntu_advantage_token
+      base_mount_point          = "/mnt/resilio-data"
+      object_storage_access_key = var.object_storage_access_key
+      object_storage_secret_key = var.object_storage_secret_key
+      object_storage_endpoint   = var.object_storage_endpoint
+      object_storage_bucket     = var.object_storage_bucket
+    }))
   }
 
   lifecycle {
-    # SAFETY: Ignore metadata changes to prevent instance recreation
-    # Cloud-init only runs on first boot; subsequent changes require manual intervention
-    # or intentional instance replacement using: terraform apply -replace="module.linode_instances[\"region\"].linode_instance.resilio"
-    ignore_changes = [metadata]
-
-    # SAFETY: When replacement IS needed, create new instance before destroying old
-    # This allows data to sync to the new instance before the old one is removed
+    ignore_changes        = [metadata]
     create_before_destroy = true
   }
 }
@@ -86,55 +90,54 @@ resource "linode_instance_disk" "resilio_boot_disk" {
   linode_id = linode_instance.resilio.id
 
   label           = "boot"
-  size            = 8000                 # 8GB
-  image           = "linode/ubuntu24.04" # Initial image
+  size            = 8000
+  image           = "linode/ubuntu24.04"
   filesystem      = "ext4"
   root_pass       = random_password.root_password.result
   authorized_keys = [var.ssh_public_key]
 
   lifecycle {
-    # Prevent accidental deletion of boot disk
-    prevent_destroy = false # Set to true in production if needed
+    prevent_destroy = false
   }
 }
 
 resource "linode_instance_disk" "resilio_tmp_disk" {
   label      = "tmp"
   linode_id  = linode_instance.resilio.id
-  filesystem = "raw" # To support cloud-init partitioning
-
-  size = 4000 # 4GB
-
+  filesystem = "raw"
+  size       = 4000
 }
 
 resource "linode_instance_config" "resilio" {
   label     = "resilio_boot_config"
   linode_id = linode_instance.resilio.id
 
+  # Boot disk (sda)
   device {
     device_name = "sda"
     disk_id     = linode_instance_disk.resilio_boot_disk.id
   }
+
+  # Temp disk (sdb) - for /tmp, /var/log, /var/tmp
   device {
-    device_name = "sdb" # /tmp / var/log /var/tmp
+    device_name = "sdb"
     disk_id     = linode_instance_disk.resilio_tmp_disk.id
   }
-  device {
-    device_name = "sdc" # /mnt/resilio-data
-    volume_id   = var.volume_id
+
+  # Dynamic volume devices (sdc, sdd, sde, etc.) - one per folder
+  dynamic "device" {
+    for_each = local.folder_device_map
+    content {
+      device_name = device.value.device_name
+      volume_id   = device.value.volume_id
+    }
   }
 
-  # Use legacy interface block to provision the default public NIC before boot
-  # interfaces {
-  #   purpose = "public"
-  #   primary = true
-  # }
-
   root_device = "/dev/sda"
-  kernel      = "linode/grub2" # To support AppArmor etc
+  kernel      = "linode/grub2"
   booted      = true
+
   lifecycle {
-    # Ignore changes to booted after initial creation
     ignore_changes = [booted]
   }
 }
@@ -144,7 +147,6 @@ resource "random_password" "root_password" {
   special = true
 
   lifecycle {
-    # Keep the same password across terraform runs
     ignore_changes = [length, special]
   }
 }

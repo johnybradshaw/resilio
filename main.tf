@@ -16,14 +16,15 @@
 
 # main.tf
 
-# Create a data volume for each region
+# Create per-folder data volumes for each region
+# Each folder in resilio_folders gets its own independent volume
 module "storage_volumes" {
   source = "./modules/volume"
 
   for_each = toset(var.regions) # ["us-east", "eu-west"]
 
   region       = each.key
-  size         = var.volume_size
+  folders      = var.resilio_folders # Map of folder names to {key, size}
   project_name = var.project_name
   tags         = local.tags # Concat tags and tld
 }
@@ -75,13 +76,20 @@ module "linode_instances" {
   instance_type          = var.instance_type # "g6-standard-2"
   ssh_public_key         = var.ssh_public_key
   project_name           = var.project_name # "resilio-sync"
-  resilio_folder_keys    = var.resilio_folder_keys
-  resilio_folder_key     = var.resilio_folder_key # Backward compatibility
+
+  # Per-folder volume configuration (new)
+  resilio_folders = var.resilio_folders       # Map of folder names to {key, size}
+  folder_volumes  = module.storage_volumes[each.key].volumes # Map of folder names to volume details
+
+  # Deprecated - kept for backward compatibility
+  resilio_folder_keys = var.resilio_folder_keys
+  resilio_folder_key  = var.resilio_folder_key
+  volume_id           = module.storage_volumes[each.key].volume_id
+
   resilio_license_key    = var.resilio_license_key
   ubuntu_advantage_token = var.ubuntu_advantage_token
   tld                    = var.tld
 
-  volume_id   = module.storage_volumes[each.key].volume_id
   firewall_id = module.resilio_firewall.firewall_id # Attach resilio firewall during creation
 
   # Object Storage for backups
