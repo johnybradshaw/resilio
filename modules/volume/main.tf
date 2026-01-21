@@ -1,12 +1,20 @@
 # modules/volume/main.tf
 # Creates one volume per folder with independent sizing
 
+# Extract folder names and sizes (non-sensitive) for iteration
+# The folder keys are sensitive, but names and sizes are not
+locals {
+  folder_sizes = {
+    for name, config in var.folders : name => config.size
+  }
+}
+
 resource "linode_volume" "storage" {
-  for_each = var.folders
+  for_each = nonsensitive(local.folder_sizes)
 
   label  = "${var.project_name}-${var.region}-${each.key}"
   region = var.region
-  size   = each.value.size
+  size   = each.value
   tags = concat(
     var.tags, [
       "region: ${var.region}",

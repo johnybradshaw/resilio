@@ -15,12 +15,28 @@ locals {
   # Label format: resilio-sync-us-east-a1b2c3d4
   label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
 
-  # Sort folder names for consistent device ordering (alphabetically)
-  sorted_folder_names = sort(keys(var.resilio_folders))
+  # Extract non-sensitive folder names for iteration
+  # The keys (secrets) are sensitive, but folder names are not
+  folder_names = nonsensitive(keys(var.resilio_folders))
 
-  # Map folder names to device letters (starting from sdc)
+  # Sort folder names for consistent device ordering (alphabetically)
+  sorted_folder_names = sort(local.folder_names)
+
+  # Map folder names to device letters (starting from sdc) - NON-SENSITIVE for dynamic block
   # sda = boot disk, sdb = tmp disk, sdc+ = data volumes
   # Device letters: c, d, e, f, g, h, i, j, k, l, m, n, o (13 max)
+  folder_device_map_nonsensitive = {
+    for idx, name in local.sorted_folder_names : name => {
+      device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
+      device_path = "/dev/sd${substr("cdefghijklmnop", idx, 1)}"
+      partition   = "/dev/sd${substr("cdefghijklmnop", idx, 1)}1"
+      label       = "resilio-${name}"
+      mount_point = "/mnt/resilio-data/${name}"
+      volume_id   = var.folder_volumes[name].id
+    }
+  }
+
+  # Full device map including sensitive key - used only for cloud-init JSON
   folder_device_map = {
     for idx, name in local.sorted_folder_names : name => {
       device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
@@ -30,7 +46,7 @@ locals {
       mount_point = "/mnt/resilio-data/${name}"
       volume_id   = var.folder_volumes[name].id
       key         = var.resilio_folders[name].key
-      size        = var.resilio_folders[name].size
+      size        = nonsensitive(var.resilio_folders[name].size)
     }
   }
 
@@ -65,14 +81,14 @@ resource "linode_instance" "resilio" {
   # Apply user data (cloud-init)
   metadata {
     user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
-      device_name               = local.label
-      ssh_public_key            = var.ssh_public_key
-      folder_device_map_json    = jsonencode(local.folder_device_map)
-      resilio_folders_json      = jsonencode(local.resilio_folders_config)
-      resilio_license_key       = var.resilio_license_key
-      tld                       = var.tld
-      ubuntu_advantage_token    = var.ubuntu_advantage_token
-      base_mount_point          = "/mnt/resilio-data"
+      device_name            = local.label
+      ssh_public_key         = var.ssh_public_key
+      folder_device_map_json = jsonencode(local.folder_device_map_nonsensitive)
+      resilio_folders_json   = jsonencode(local.resilio_folders_config)
+      resilio_license_key    = var.resilio_license_key
+      tld                    = var.tld
+      ubuntu_advantage_token = var.ubuntu_advantage_token
+      base_mount_point       = "/mnt/resilio-data"
       object_storage_access_key = var.object_storage_access_key
       object_storage_secret_key = var.object_storage_secret_key
       object_storage_endpoint   = var.object_storage_endpoint
@@ -126,7 +142,7 @@ resource "linode_instance_config" "resilio" {
 
   # Dynamic volume devices (sdc, sdd, sde, etc.) - one per folder
   dynamic "device" {
-    for_each = local.folder_device_map
+    for_each = local.folder_device_map_nonsensitive
     content {
       device_name = device.value.device_name
       volume_id   = device.value.volume_id
