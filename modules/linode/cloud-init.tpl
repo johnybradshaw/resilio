@@ -101,7 +101,7 @@ packages:
   - apparmor-profiles
   - apparmor-utils
   - sshguard
-  # - aide # DISABLED - requires proper configuration, see CIS hardening section
+  - aide # Advanced Intrusion Detection Environment
   - auditd # Auditing
   - audispd-plugins # Auditing Plugins
   # System
@@ -837,11 +837,12 @@ runcmd:
     aa-enabled &&
     apparmor_parser -a --Complain /etc/apparmor.d/
 
-  # Hardening
-  # AIDE and CIS Hardening - DISABLED temporarily
-  # These require proper configuration before enabling:
-  # - AIDE needs: aide --config /etc/aide/aide.conf --init
-  # - CIS needs: usg generate-tailoring cis_level1_server hardening.xml && usg fix --tailoring-file hardening.xml
+  # Hardening - AIDE (Advanced Intrusion Detection Environment)
+  # Initialize AIDE database for file integrity monitoring
+  - |
+    echo "Initializing AIDE database..."
+    aideinit -y -f
+    echo "AIDE initialization complete"
 
   # CIS Hardening - DISABLED temporarily due to boot issues
   # Re-enable after validating system boots correctly
