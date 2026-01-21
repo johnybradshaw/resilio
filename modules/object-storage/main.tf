@@ -6,7 +6,7 @@
 resource "linode_object_storage_bucket" "backup" {
   for_each = toset(var.backup_regions)
 
-  cluster    = "${each.key}-1" # e.g., "us-east-1", "eu-west-1"
+  region     = each.key # e.g., "us-east", "eu-west"
   label      = "${var.bucket_prefix}-${each.key}"
   acl        = "private"
   versioning = var.enable_versioning
@@ -28,7 +28,7 @@ resource "linode_object_storage_key" "backup" {
   dynamic "bucket_access" {
     for_each = linode_object_storage_bucket.backup
     content {
-      cluster     = bucket_access.value.cluster
+      region      = bucket_access.value.region
       bucket_name = bucket_access.value.label
       permissions = "read_write"
     }
@@ -45,8 +45,8 @@ locals {
   bucket_details = {
     for region, bucket in linode_object_storage_bucket.backup : region => {
       name     = bucket.label
-      cluster  = bucket.cluster
-      endpoint = "${bucket.cluster}.linodeobjects.com"
+      cluster  = "${bucket.region}-1" # For endpoint compatibility
+      endpoint = "${bucket.region}-1.linodeobjects.com"
       hostname = bucket.hostname
     }
   }
