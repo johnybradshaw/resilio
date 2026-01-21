@@ -217,7 +217,7 @@ Each Resilio folder gets its own dedicated Linode volume, enabling:
 ```
 
 **Volume/Mount Naming:**
-- Volume label: `resilio-{folder_name}` (e.g., `resilio-documents`)
+- Volume label: `rs-{folder_name}-{region_prefix}` (e.g., `rs-documents-us-eas`)
 - Mount point: `/mnt/resilio-data/{folder_name}`
 
 **Configuration in terraform.tfvars:**
@@ -305,7 +305,20 @@ Instance provisioning uses cloud-init template at `modules/linode/cloud-init.tpl
 - SSH key configuration
 - Resilio Sync installation and configuration
 - Volume mounting
-- Backup script setup (when Object Storage is configured)
+- Backup script setup (when Object Storage is configured and region is in `backup_regions`)
+
+### Backup Configuration
+
+Since Resilio syncs data across all regions, only ONE region needs to run backups to Object Storage. This is controlled by the `backup_regions` variable:
+
+```hcl
+# In terraform.tfvars
+backup_regions = ["us-east"]  # Only us-east runs backups
+```
+
+- Empty list `[]` disables backups on all regions
+- Set to one region to avoid redundant storage costs
+- Backups run daily at 2 AM via cron
 
 **Note**: The cloud-init runs on every instance creation. The template includes checks to preserve existing Resilio identity and license (lines 282-302), but other configurations will be reapplied.
 

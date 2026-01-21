@@ -30,7 +30,7 @@ locals {
       device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
       device_path = "/dev/sd${substr("cdefghijklmnop", idx, 1)}"
       partition   = "/dev/sd${substr("cdefghijklmnop", idx, 1)}1"
-      label       = "resilio-${name}"
+      label       = "rs-${name}-${substr(var.region, 0, 6)}"
       mount_point = "/mnt/resilio-data/${name}"
       volume_id   = var.folder_volumes[name].id
     }
@@ -42,7 +42,7 @@ locals {
       device_name = "sd${substr("cdefghijklmnop", idx, 1)}"
       device_path = "/dev/sd${substr("cdefghijklmnop", idx, 1)}"
       partition   = "/dev/sd${substr("cdefghijklmnop", idx, 1)}1"
-      label       = "resilio-${name}"
+      label       = "rs-${name}-${substr(var.region, 0, 6)}"
       mount_point = "/mnt/resilio-data/${name}"
       volume_id   = var.folder_volumes[name].id
       key         = var.resilio_folders[name].key
@@ -93,6 +93,7 @@ resource "linode_instance" "resilio" {
       object_storage_secret_key = var.object_storage_secret_key
       object_storage_endpoint   = var.object_storage_endpoint
       object_storage_bucket     = var.object_storage_bucket
+      enable_backup             = var.enable_backup
     }))
   }
 

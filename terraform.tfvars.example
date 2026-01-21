@@ -115,9 +115,14 @@ tags = ["deployment: terraform", "app: resilio", "environment: production"]
 # Default: "resilio-backups"
 # object_storage_bucket = "resilio-backups"
 
+# Which regions should run backups (to avoid redundant backups across all regions)
+# Since Resilio syncs data across all regions, only ONE region needs to backup
+# Default: [] (no backups). Set to ["us-east"] to enable on one region.
+backup_regions = ["us-east"]
+
 # Backup Schedule:
 # - Daily backups run at 2:00 AM local time
 # - Incremental backups (only changed files)
 # - Old backups deleted after 30 days
-# - Backup location: <bucket>/<hostname>/
+# - Backup location: <bucket>/<hostname>/<folder>/
 # - NOTE: Create the bucket in Linode Object Storage before enabling backups

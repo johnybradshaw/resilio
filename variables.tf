@@ -182,6 +182,12 @@ variable "object_storage_bucket" {
   default     = "resilio-backups"
 }
 
+variable "backup_regions" {
+  description = "List of regions that should run Object Storage backups. Only these regions will have backup cron jobs. Empty list disables backups on all regions."
+  type        = list(string)
+  default     = [] # Set to ["us-east"] to enable backups on one region only
+}
+
 variable "cloud_user" {
   description = "Non-root user for SSH access and management"
   type        = string

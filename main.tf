@@ -98,6 +98,9 @@ module "linode_instances" {
   object_storage_endpoint   = var.object_storage_endpoint
   object_storage_bucket     = var.object_storage_bucket
 
+  # Only enable backups on specified regions to avoid redundant backups
+  enable_backup = contains(var.backup_regions, each.key)
+
   tags = local.tags # Concat tags and tld
 }
 

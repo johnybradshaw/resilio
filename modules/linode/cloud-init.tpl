@@ -691,10 +691,13 @@ runcmd:
   - /usr/local/bin/volume-auto-expand.sh  # Run once now in case volume was pre-expanded
 
   - systemctl enable --now resilio-sync
+  # Only enable backup cron if this region is in backup_regions
   - |
-    if [ "${object_storage_access_key}" != "CHANGEME" ]; then
+    if [ "${enable_backup}" = "true" ] && [ "${object_storage_access_key}" != "CHANGEME" ]; then
       echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
-      echo ">>> Backup enabled"
+      echo ">>> Backup enabled on this region"
+    else
+      echo ">>> Backup disabled on this region (enable_backup=${enable_backup})"
     fi
 
   # Load audit rules

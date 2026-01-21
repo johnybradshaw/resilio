@@ -109,3 +109,9 @@ variable "object_storage_bucket" {
   description = "Linode Object Storage bucket name"
   type        = string
 }
+
+variable "enable_backup" {
+  description = "Whether to enable Object Storage backups on this instance"
+  type        = bool
+  default     = false
+}

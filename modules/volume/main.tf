@@ -12,7 +12,9 @@ locals {
 resource "linode_volume" "storage" {
   for_each = nonsensitive(local.folder_sizes)
 
-  label  = "${var.project_name}-${var.region}-${each.key}"
+  # Shortened label to fit 32 char limit: rs-{folder}-{region_prefix}
+  # Example: rs-documents-us-eas (19 chars)
+  label = "rs-${each.key}-${substr(var.region, 0, 6)}"
   region = var.region
   size   = each.value
   tags = concat(
