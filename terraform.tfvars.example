@@ -89,40 +89,78 @@ tags = ["deployment: terraform", "app: resilio", "environment: production"]
 # cloud_user = "ac-user"
 
 # ============================================================================
+# SSL/TLS Certificate Configuration
+# ============================================================================
+
+# ACME server URL for Let's Encrypt certificates
+# Production (default): "https://acme-v02.api.letsencrypt.org/directory"
+# Staging (for testing): "https://acme-staging-v02.api.letsencrypt.org/directory"
+# IMPORTANT: Use staging for initial testing to avoid rate limits!
+# acme_server_url = "https://acme-v02.api.letsencrypt.org/directory"
+
+# ============================================================================
 # Backup Configuration - Linode Object Storage
 # ============================================================================
 
-# Linode Object Storage credentials for automated backups
-# IMPORTANT: Set these to enable daily backups to Object Storage
-# Leave as "CHANGEME" or empty to disable backups
+# Option 1: Terraform-managed backups (RECOMMENDED)
+# Set backup_enabled = true to let Terraform create and manage buckets/keys
 
-# Object Storage Access Key (get from: https://cloud.linode.com/object-storage/access-keys)
+# Enable Terraform-managed Object Storage backups
+# When true, Terraform creates buckets and access keys automatically
+# Default: false
+# backup_enabled = true
+
+# Regions for backup storage destinations (where backups are stored)
+# Backups can be replicated to multiple regions for redundancy
+# Default: ["us-east"]
+# backup_storage_regions = ["us-east", "eu-west"]
+
+# VM regions that should run backups (which VMs push to storage)
+# Only one region needed since all VMs have same data via Resilio Sync
+# Default: []
+# backup_source_regions = ["us-east"]
+
+# Enable object versioning on backup buckets (recommended)
+# Allows point-in-time recovery of files
+# Default: true
+# backup_versioning = true
+
+# Days to retain backup versions before cleanup
+# Set to 0 to keep forever
+# Default: 90
+# backup_retention_days = 90
+
+# Backup scheduling mode:
+#   "scheduled" - Traditional cron-based backups (default)
+#   "realtime"  - inotify-based immediate backup on file changes
+#   "hybrid"    - Both scheduled full + realtime incremental backups
+# Default: "scheduled"
+# backup_mode = "scheduled"
+
+# Cron schedule for backups (used in scheduled and hybrid modes)
+# Default: "0 2 * * *" (daily at 2 AM)
+# backup_schedule = "0 2 * * *"
+
+# Number of parallel file transfers (1-32)
+# Higher = faster but more CPU/IO usage
+# Default: 8
+# backup_transfers = 8
+
+# Bandwidth limit for backups (e.g., "10M" for 10MB/s)
+# Empty = unlimited
+# Default: ""
+# backup_bandwidth_limit = ""
+
+# ----------------------------------------------------------------------------
+# Option 2: Legacy manual configuration (use if backup_enabled = false)
+# ----------------------------------------------------------------------------
+
+# [LEGACY] Manual Object Storage credentials
+# Only used if backup_enabled = false
 # object_storage_access_key = "CHANGEME"
-
-# Object Storage Secret Key
 # object_storage_secret_key = "CHANGEME"
-
-# Object Storage Endpoint (region-specific)
-# Available endpoints:
-#   - us-east-1.linodeobjects.com (Newark, NJ)
-#   - us-southeast-1.linodeobjects.com (Atlanta, GA)
-#   - eu-central-1.linodeobjects.com (Frankfurt, DE)
-#   - ap-south-1.linodeobjects.com (Singapore)
-# Default: "us-east-1.linodeobjects.com"
 # object_storage_endpoint = "us-east-1.linodeobjects.com"
-
-# Object Storage Bucket name (must be created in Linode Object Storage first)
-# Default: "resilio-backups"
 # object_storage_bucket = "resilio-backups"
 
-# Which regions should run backups (to avoid redundant backups across all regions)
-# Since Resilio syncs data across all regions, only ONE region needs to backup
-# Default: [] (no backups). Set to ["us-east"] to enable on one region.
-backup_regions = ["us-east"]
-
-# Backup Schedule:
-# - Daily backups run at 2:00 AM local time
-# - Incremental backups (only changed files)
-# - Old backups deleted after 30 days
-# - Backup location: <bucket>/<hostname>/<folder>/
-# - NOTE: Create the bucket in Linode Object Storage before enabling backups
+# [DEPRECATED] Use backup_source_regions instead
+# backup_regions = ["us-east"]
