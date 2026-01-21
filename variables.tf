@@ -177,22 +177,12 @@ variable "backup_storage_regions" {
   description = "List of Linode regions for backup storage destinations (e.g., ['us-east', 'eu-west']). Backups are replicated to all specified regions."
   type        = list(string)
   default     = ["us-east"]
-
-  validation {
-    condition     = length(var.backup_storage_regions) > 0 || !var.backup_enabled
-    error_message = "At least one backup storage region must be specified when backups are enabled."
-  }
 }
 
 variable "backup_source_regions" {
-  description = "List of VM regions that should run backups. Only VMs in these regions will push to Object Storage. Empty = no VMs backup."
+  description = "List of VM regions that should run backups. Only VMs in these regions will push to Object Storage. Empty = no VMs backup. For efficiency, recommend only one region since all VMs sync the same data."
   type        = list(string)
   default     = [] # Set to ["us-east"] to have one region backup
-
-  validation {
-    condition     = length(var.backup_source_regions) <= 1 || !var.backup_enabled
-    error_message = "For efficiency, only one source region should run backups since all VMs have the same data via Resilio Sync."
-  }
 }
 
 variable "backup_versioning" {

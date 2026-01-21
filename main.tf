@@ -40,13 +40,12 @@ resource "acme_registration" "resilio" {
 
 # Let's Encrypt wildcard certificate for all Resilio instances
 resource "acme_certificate" "resilio" {
-  account_key_pem          = acme_registration.resilio.account_key_pem
-  common_name              = "${var.project_name}.${var.tld}"
-  subject_alternative_names = [
-    "*.${var.project_name}.${var.tld}",
-    # Add each region-specific subdomain
-    for region in var.regions : "${var.project_name}.${region}.${var.tld}"
-  ]
+  account_key_pem = acme_registration.resilio.account_key_pem
+  common_name     = "${var.project_name}.${var.tld}"
+  subject_alternative_names = concat(
+    ["*.${var.project_name}.${var.tld}"],
+    [for region in var.regions : "${var.project_name}.${region}.${var.tld}"]
+  )
 
   dns_challenge {
     provider = "linode"
