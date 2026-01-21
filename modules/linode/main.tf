@@ -79,8 +79,10 @@ resource "linode_instance" "resilio" {
   firewall_id          = var.firewall_id
 
   # Apply user data (cloud-init)
+  # Using base64gzip to compress cloud-init template (26KB -> ~6KB)
+  # This is required because Linode user_data limit is 16KB decoded
   metadata {
-    user_data = base64encode(templatefile("${path.module}/cloud-init.tpl", {
+    user_data = base64gzip(templatefile("${path.module}/cloud-init.tpl", {
       device_name            = local.label
       ssh_public_key         = var.ssh_public_key
       folder_device_map_json = jsonencode(local.folder_device_map_nonsensitive)
