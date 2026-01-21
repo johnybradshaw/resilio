@@ -111,7 +111,7 @@ resource "linode_instance_disk" "resilio_boot_disk" {
   linode_id = linode_instance.resilio.id
 
   label           = "boot"
-  size            = 8000
+  size            = 20000 # 20GB for OS + security packages
   image           = "linode/ubuntu24.04"
   filesystem      = "ext4"
   root_pass       = random_password.root_password.result
