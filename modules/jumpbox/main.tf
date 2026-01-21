@@ -1,4 +1,14 @@
 # modules/jumpbox/main.tf
+
+# Generate a unique identifier for this instance
+resource "random_id" "jumpbox" {
+  byte_length = 2
+
+  keepers = {
+    project_name = var.project_name
+  }
+}
+
 # Random password for root account (required by Linode API)
 resource "random_password" "root" {
   length  = 32
@@ -7,7 +17,7 @@ resource "random_password" "root" {
 
 # Jumpbox Linode instance
 resource "linode_instance" "jumpbox" {
-  label     = "${var.project_name}-jumpbox"
+  label     = "${var.project_name}-jumpbox-${random_id.jumpbox.hex}"
   region    = var.region
   type      = var.instance_type
   image     = "linode/ubuntu24.04"
