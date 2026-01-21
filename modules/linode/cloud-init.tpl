@@ -721,8 +721,8 @@ runcmd:
   - mkdir -p /var/log/resilio-sync
   - chown rslsync:rslsync /var/log/resilio-sync
 
-  # Activate Ubuntu Advantage
-  - pro enable esm-infra esm-apps livepatch
+  # Activate Ubuntu Advantage (includes USG for CIS hardening)
+  - pro enable esm-infra esm-apps livepatch usg
   - apt-get update
 
   # Load custom sysctl settings
@@ -731,7 +731,7 @@ runcmd:
   # Install additional packages without prompting
   - |
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      et resilio-sync jq cloud-guest-utils \
+      et resilio-sync usg jq cloud-guest-utils \
       -o Dpkg::Options::="--force-confdef" \
       -o Dpkg::Options::="--force-confold"
 
@@ -844,13 +844,14 @@ runcmd:
     aideinit -y -f
     echo "AIDE initialization complete"
 
-  # CIS Hardening using Ubuntu Security Guide (USG) - DISABLED
-  # USG package has issues on Ubuntu 24.04 (noble) - re-enable when available
-  # To enable manually after boot:
-  #   sudo pro enable usg
-  #   sudo apt install usg
-  #   usg generate-tailoring cis_level1_server cis-tailoring.xml
-  #   usg fix --tailoring-file cis-tailoring.xml
+  # CIS Hardening using Ubuntu Security Guide (USG)
+  # Applies CIS Level 1 Server benchmark with tailoring
+  - |
+    echo "Applying CIS Level 1 Server hardening..."
+    cd /root
+    usg generate-tailoring cis_level1_server cis-tailoring.xml
+    usg fix --tailoring-file cis-tailoring.xml
+    echo "CIS hardening complete"
 
 # Reboot after Cloud-Init - DISABLED to prevent boot loops
 # Re-enable after validating cloud-init completes successfully
