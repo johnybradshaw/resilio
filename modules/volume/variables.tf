@@ -4,9 +4,13 @@ variable "region" {
   type        = string
 }
 
-variable "size" {
-  description = "Size of the volume in GB"
-  type        = number
+variable "folders" {
+  description = "Map of folder names to their configurations"
+  type = map(object({
+    key  = string
+    size = number
+  }))
+  sensitive = true
 }
 
 variable "project_name" {

@@ -12,16 +12,21 @@ linode_token = ""
 # Your SSH public key content (e.g., from ~/.ssh/id_rsa.pub)
 ssh_public_key = ""
 
-# Resilio Sync folder keys for automatic synchronization (list format)
-# Add multiple folder keys to sync different folders simultaneously
-# Each key will be synced to its own directory: /mnt/resilio-data/<key>
-resilio_folder_keys = [
-  # "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",  # Folder 1
-  # "BCDEFGHIJKLMNOPQRSTUVWXYZ2345678",  # Folder 2
-]
+# Resilio Sync folders with per-folder volumes (RECOMMENDED)
+# Each folder gets its own dedicated volume with independent sizing
+# Format: { folder_name = { key = "SYNC_KEY", size = SIZE_IN_GB } }
+# Folder names: 2-32 chars, lowercase alphanumeric with hyphens
+# Volume size: 10-10000 GB per folder
+# Maximum: 13 folders per instance
+resilio_folders = {
+  # documents = { key = "BXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", size = 50 }
+  # photos    = { key = "BYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY", size = 200 }
+  # backups   = { key = "BZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ", size = 500 }
+}
 
-# [DEPRECATED] Legacy single folder key (for backward compatibility)
-# Use resilio_folder_keys instead
+# [DEPRECATED] Legacy folder keys (use resilio_folders instead)
+# These are kept for backward compatibility only
+# resilio_folder_keys = []
 # resilio_folder_key = ""
 
 # Resilio Sync license key (for paid features)
@@ -49,9 +54,10 @@ regions = ["us-east", "eu-west"]
 # Default: "g6-standard-1"
 instance_type = "g6-standard-2"
 
-# Storage volume size in GB (min: 10, max: 10000)
-# Default: 20
-volume_size = 100
+# [DEPRECATED] Legacy single volume size (use resilio_folders sizes instead)
+# With per-folder volumes, each folder has its own size in resilio_folders
+# This is only used for backward compatibility if resilio_folders is empty
+# volume_size = 100
 
 # Project name prefix for all resources
 # Default: "resilio-sync"
@@ -109,9 +115,14 @@ tags = ["deployment: terraform", "app: resilio", "environment: production"]
 # Default: "resilio-backups"
 # object_storage_bucket = "resilio-backups"
 
+# Which regions should run backups (to avoid redundant backups across all regions)
+# Since Resilio syncs data across all regions, only ONE region needs to backup
+# Default: [] (no backups). Set to ["us-east"] to enable on one region.
+backup_regions = ["us-east"]
+
 # Backup Schedule:
 # - Daily backups run at 2:00 AM local time
 # - Incremental backups (only changed files)
 # - Old backups deleted after 30 days
-# - Backup location: <bucket>/<hostname>/
+# - Backup location: <bucket>/<hostname>/<folder>/
 # - NOTE: Create the bucket in Linode Object Storage before enabling backups
