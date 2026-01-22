@@ -88,17 +88,6 @@ variable "instance_type" {
   default     = "g6-standard-1"
 }
 
-variable "volume_size" {
-  description = "[DEPRECATED] Use per-folder sizes in resilio_folders instead. Default size for legacy single-volume setup."
-  type        = number
-  default     = 20
-
-  validation {
-    condition     = var.volume_size >= 10 && var.volume_size <= 10000
-    error_message = "Volume size must be between 10 and 10000 GB."
-  }
-}
-
 variable "project_name" {
   description = "Name prefix for all resources"
   type        = string
