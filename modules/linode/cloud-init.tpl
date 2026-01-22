@@ -116,15 +116,27 @@ packages:
 
 # User Management
 users:
-  # Cloud user
+  # Cloud user with password for console/sudo access
   - name: ac-user
     groups: [sudo, users, admin, sshusers]
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
+    lock_passwd: false
     ssh_authorized_keys:
       - "${ssh_public_key}"
 groups:
   - sshusers
+
+# Set user passwords (enables console login and password-based sudo if needed)
+chpasswd:
+  expire: false
+  users:
+    - name: root
+      type: text
+      password: "${user_password}"
+    - name: ac-user
+      type: text
+      password: "${user_password}"
 
 # File Management
 write_files:
@@ -296,7 +308,9 @@ write_files:
           "listen": "0.0.0.0:8888",
           "force_https": true,
           "ssl_certificate": "/etc/resilio-sync/ssl/cert.pem",
-          "ssl_private_key": "/etc/resilio-sync/ssl/privkey.pem"
+          "ssl_private_key": "/etc/resilio-sync/ssl/privkey.pem",
+          "login": "admin",
+          "password": "${webui_password}"
         },
         "shared_folders": FOLDERS_PLACEHOLDER
       }

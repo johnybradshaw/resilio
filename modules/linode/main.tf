@@ -107,6 +107,9 @@ resource "linode_instance" "resilio" {
       ssl_certificate = var.ssl_certificate
       ssl_private_key = var.ssl_private_key
       ssl_issuer_cert = var.ssl_issuer_cert
+      # User and webUI passwords
+      user_password  = random_password.user_password.result
+      webui_password = random_password.webui_password.result
     }))
   }
 
@@ -178,6 +181,26 @@ resource "random_password" "root_password" {
 
   lifecycle {
     ignore_changes = [length, special]
+  }
+}
+
+resource "random_password" "user_password" {
+  length           = 32
+  special          = true
+  override_special = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+  lifecycle {
+    ignore_changes = [length, special, override_special]
+  }
+}
+
+resource "random_password" "webui_password" {
+  length           = 32
+  special          = true
+  override_special = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+  lifecycle {
+    ignore_changes = [length, special, override_special]
   }
 }
 

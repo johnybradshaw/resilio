@@ -122,3 +122,18 @@ output "backup_rehydrate_command" {
   value       = var.backup_enabled || var.object_storage_access_key != "CHANGEME" ? "sudo /usr/local/bin/resilio-rehydrate.sh --list" : "Backups not configured"
   sensitive   = true
 }
+
+# VM Credentials
+output "vm_credentials" {
+  description = "Credentials for VM access (root, ac-user) and Resilio web UI per region"
+  sensitive   = true
+  value = {
+    for region, instance in module.linode_instances : region => {
+      root_password  = instance.root_password
+      user_password  = instance.user_password
+      webui_username = "admin"
+      webui_password = instance.webui_password
+      webui_url      = "https://${instance.instance_label}.${var.tld}:8888"
+    }
+  }
+}
