@@ -317,7 +317,7 @@ write_files:
         regenerate|apply)
           [ -f "$FOLDERS_FILE" ] || exit 1
           FOLDERS=$(cat "$FOLDERS_FILE")
-          sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" > "$CONFIG"
+          sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" | jq . > "$CONFIG"
           chown rslsync:rslsync "$CONFIG"
           [ "$1" = "apply" ] && systemctl restart resilio-sync
           ;;
@@ -576,9 +576,9 @@ runcmd:
       done
     fi
 
-    # Generate config.json from template + volume-based folders
+    # Generate config.json from template + volume-based folders (formatted with jq)
     FOLDERS=$(cat "$FOLDERS_FILE")
-    sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl > /etc/resilio-sync/config.json
+    sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl | jq . > /etc/resilio-sync/config.json
     chown rslsync:rslsync /etc/resilio-sync/config.json
     echo ">>> Resilio config generated"
 

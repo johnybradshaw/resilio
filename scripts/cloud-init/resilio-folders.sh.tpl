@@ -13,9 +13,9 @@ generate_config() {
     echo "Error: $FOLDERS_FILE not found" >&2
     exit 1
   fi
-  # Read folders and inject into config template
+  # Read folders and inject into config template, then pretty-print with jq
   FOLDERS=$(cat "$FOLDERS_FILE")
-  sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" > "$CONFIG"
+  sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" | jq . > "$CONFIG"
   chown rslsync:rslsync "$CONFIG"
   echo "Config regenerated at $CONFIG"
 }
