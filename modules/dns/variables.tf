@@ -18,6 +18,12 @@ variable "project_name" {
   type        = string
 }
 
+variable "include_project_name" {
+  description = "Whether to include project name in DNS record names"
+  type        = bool
+  default     = true
+}
+
 variable "ttl_sec" {
   description = "TTL in seconds"
   type        = number

@@ -121,6 +121,12 @@ variable "tld" {
   }
 }
 
+variable "dns_include_project_name" {
+  description = "Whether to include project name in DNS records. If true: us-east.resilio-sync.domain.tld, if false: us-east.domain.tld"
+  type        = bool
+  default     = true
+}
+
 variable "create_domain" {
   description = "Whether to create the domain in Linode DNS or use an existing one. Set to false if domain already exists."
   type        = bool

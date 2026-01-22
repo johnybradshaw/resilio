@@ -4,8 +4,9 @@ locals {
   # Label format: us-east-resilio-sync-a1b2c3d4 (region first, uses global suffix)
   label = "${var.region}-${var.project_name}-${var.suffix}"
 
-  # Hostname for DNS/cloud-init: us-east.resilio-sync (no suffix, matches DNS record)
-  hostname = "${var.region}.${var.project_name}"
+  # Hostname for DNS/cloud-init (no suffix, matches DNS record)
+  # Format: "us-east.resilio-sync" or just "us-east" depending on include_project_name_in_hostname
+  hostname = var.include_project_name_in_hostname ? "${var.region}.${var.project_name}" : var.region
 
   # Extract non-sensitive folder names for iteration
   # The keys (secrets) are sensitive, but folder names are not

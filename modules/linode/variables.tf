@@ -82,6 +82,12 @@ variable "tld" {
   type        = string
 }
 
+variable "include_project_name_in_hostname" {
+  description = "Whether to include project name in hostname. If true: us-east.resilio-sync, if false: us-east"
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Set of tags to apply to all resources"
   type        = list(string)
