@@ -120,4 +120,5 @@ output "backup_source_regions" {
 output "backup_rehydrate_command" {
   description = "Command to restore from backup on a new VM"
   value       = var.backup_enabled || var.object_storage_access_key != "CHANGEME" ? "sudo /usr/local/bin/resilio-rehydrate.sh --list" : "Backups not configured"
+  sensitive   = true
 }

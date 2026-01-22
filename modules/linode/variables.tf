@@ -136,7 +136,7 @@ variable "backup_config" {
     secret_key       = string
     primary_endpoint = string
     primary_bucket   = string
-    all_buckets      = map(object({
+    all_buckets = map(object({
       name     = string
       cluster  = string
       endpoint = string
@@ -177,4 +177,24 @@ variable "ssl_issuer_cert" {
   description = "SSL issuer/CA certificate (PEM format)"
   type        = string
   sensitive   = true
+}
+
+# Variables for file provisioner (script transfer)
+variable "ssh_private_key" {
+  description = "SSH private key for file provisioner to connect to instance"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "jumpbox_ip" {
+  description = "Jumpbox IP address for bastion host connection"
+  type        = string
+  default     = ""
+}
+
+variable "provision_scripts" {
+  description = "Whether to use file provisioner to transfer scripts (requires ssh_private_key and jumpbox_ip)"
+  type        = bool
+  default     = false
 }

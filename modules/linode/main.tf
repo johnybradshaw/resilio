@@ -180,3 +180,93 @@ resource "random_password" "root_password" {
     ignore_changes = [length, special]
   }
 }
+
+# Script provisioner - transfers scripts via SSH after instance boot
+# This keeps cloud-init under 16KB by moving large scripts out of user_data
+resource "null_resource" "provision_scripts" {
+  count = var.provision_scripts ? 1 : 0
+
+  depends_on = [linode_instance_config.resilio]
+
+  triggers = {
+    instance_id = linode_instance.resilio.id
+  }
+
+  connection {
+    type        = "ssh"
+    user        = "ac-user"
+    private_key = var.ssh_private_key
+    host        = tolist(linode_instance.resilio.ipv4)[0]
+
+    bastion_host        = var.jumpbox_ip
+    bastion_user        = "ac-user"
+    bastion_private_key = var.ssh_private_key
+  }
+
+  # Transfer resilio-folders script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-folders.sh.tpl", {
+      base_mount_point = "/mnt/resilio-data"
+    })
+    destination = "/tmp/resilio-folders"
+  }
+
+  # Transfer volume-auto-expand script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/volume-auto-expand.sh.tpl", {
+      base_mount_point = "/mnt/resilio-data"
+    })
+    destination = "/tmp/volume-auto-expand.sh"
+  }
+
+  # Transfer resilio-backup script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-backup.sh.tpl", {
+      base_mount_point      = "/mnt/resilio-data"
+      object_storage_bucket = var.object_storage_bucket
+    })
+    destination = "/tmp/resilio-backup.sh"
+  }
+
+  # Transfer resilio-rehydrate script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-rehydrate.sh.tpl", {
+      base_mount_point      = "/mnt/resilio-data"
+      object_storage_bucket = var.object_storage_bucket
+    })
+    destination = "/tmp/resilio-rehydrate.sh"
+  }
+
+  # Transfer resilio-backup-watch script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-backup-watch.sh.tpl", {
+      base_mount_point = "/mnt/resilio-data"
+    })
+    destination = "/tmp/resilio-backup-watch.sh"
+  }
+
+  # Transfer collect-diagnostics script (no template variables)
+  provisioner "file" {
+    source      = "${path.module}/../../scripts/cloud-init/collect-diagnostics.sh"
+    destination = "/tmp/collect-diagnostics.sh"
+  }
+
+  # Install scripts and set permissions
+  provisioner "remote-exec" {
+    inline = [
+      "sudo mv /tmp/resilio-folders /usr/local/bin/resilio-folders",
+      "sudo mv /tmp/volume-auto-expand.sh /usr/local/bin/volume-auto-expand.sh",
+      "sudo mv /tmp/resilio-backup.sh /usr/local/bin/resilio-backup.sh",
+      "sudo mv /tmp/resilio-rehydrate.sh /usr/local/bin/resilio-rehydrate.sh",
+      "sudo mv /tmp/resilio-backup-watch.sh /usr/local/bin/resilio-backup-watch.sh",
+      "sudo mv /tmp/collect-diagnostics.sh /usr/local/bin/collect-diagnostics.sh",
+      "sudo chmod +x /usr/local/bin/resilio-folders",
+      "sudo chmod +x /usr/local/bin/volume-auto-expand.sh",
+      "sudo chmod +x /usr/local/bin/resilio-backup.sh",
+      "sudo chmod +x /usr/local/bin/resilio-rehydrate.sh",
+      "sudo chmod +x /usr/local/bin/resilio-backup-watch.sh",
+      "sudo chmod +x /usr/local/bin/collect-diagnostics.sh",
+      "echo 'Scripts installed successfully'"
+    ]
+  }
+}
