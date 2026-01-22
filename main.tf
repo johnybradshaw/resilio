@@ -83,7 +83,10 @@ resource "acme_certificate" "resilio" {
   subject_alternative_names = var.dns_include_project_name ? concat(
     ["*.${var.project_name}.${var.tld}"],
     [for region in var.regions : "${region}.${var.project_name}.${var.tld}"]
-  ) : [for region in var.regions : "${region}.${var.tld}"]
+  ) : concat(
+    ["*.${var.tld}"],
+    [for region in var.regions : "${region}.${var.tld}"]
+  )
 
   dns_challenge {
     provider = "linode"

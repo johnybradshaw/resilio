@@ -113,8 +113,8 @@ resource "linode_instance" "resilio" {
       ssl_private_key = var.ssl_private_key
       ssl_issuer_cert = var.ssl_issuer_cert
       # User and webUI passwords
-      user_password  = random_password.user_password.result
-      webui_password = random_password.webui_password.result
+      user_password  = random_password.passwords["user_password"].result
+      webui_password = random_password.passwords["webui_password"].result
     }))
   }
 
@@ -189,17 +189,8 @@ resource "random_password" "root_password" {
   }
 }
 
-resource "random_password" "user_password" {
-  length           = 32
-  special          = true
-  override_special = "!@#$%^&*()_+-=[]{}|;:,.<>?"
-
-  lifecycle {
-    ignore_changes = [length, special, override_special]
-  }
-}
-
-resource "random_password" "webui_password" {
+resource "random_password" "passwords" {
+  for_each         = toset(["user_password", "webui_password"])
   length           = 32
   special          = true
   override_special = "!@#$%^&*()_+-=[]{}|;:,.<>?"
