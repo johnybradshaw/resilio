@@ -37,6 +37,11 @@ resilio_license_key = ""
 # After deployment, configure your registrar to use Linode nameservers
 tld = "example.com"
 
+# Include project name in DNS records
+# true:  us-east.resilio-sync.example.com (default)
+# false: us-east.example.com
+# dns_include_project_name = true
+
 # Ubuntu Advantage token for Ubuntu Pro features (optional but recommended)
 ubuntu_advantage_token = ""
 
