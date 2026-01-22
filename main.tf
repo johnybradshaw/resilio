@@ -79,10 +79,13 @@ resource "acme_registration" "resilio" {
 # Let's Encrypt wildcard certificate for all Resilio instances
 resource "acme_certificate" "resilio" {
   account_key_pem = acme_registration.resilio.account_key_pem
-  common_name     = "${var.project_name}.${var.tld}"
-  subject_alternative_names = concat(
+  common_name     = var.dns_include_project_name ? "${var.project_name}.${var.tld}" : var.tld
+  subject_alternative_names = var.dns_include_project_name ? concat(
     ["*.${var.project_name}.${var.tld}"],
-    [for region in var.regions : "${var.project_name}.${region}.${var.tld}"]
+    [for region in var.regions : "${region}.${var.project_name}.${var.tld}"]
+  ) : concat(
+    ["*.${var.tld}"],
+    [for region in var.regions : "${region}.${var.tld}"]
   )
 
   dns_challenge {
@@ -116,10 +119,13 @@ module "storage_volumes" {
 # BACKUP OBJECT STORAGE
 # =============================================================================
 
-# Create and manage Object Storage buckets for backups (when backup_enabled = true)
+# Create and manage Object Storage buckets for backups
+# Note: Buckets are created when backup_storage_regions is non-empty, regardless of backup_enabled.
+# This prevents accidental bucket destruction when toggling backup_enabled.
+# The backup_enabled variable only controls whether backup scripts run on instances.
 module "backup_storage" {
   source = "./modules/object-storage"
-  count  = var.backup_enabled ? 1 : 0
+  count  = length(var.backup_storage_regions) > 0 ? 1 : 0
 
   project_name   = var.project_name
   suffix         = random_id.global_suffix.hex
@@ -232,6 +238,8 @@ module "linode_instances" {
   project_name   = var.project_name            # "resilio-sync"
   suffix         = random_id.global_suffix.hex # Use global suffix
 
+  include_project_name_in_hostname = var.dns_include_project_name
+
   # Per-folder volume configuration (new)
   resilio_folders = var.resilio_folders                      # Map of folder names to {key, size}
   folder_volumes  = module.storage_volumes[each.key].volumes # Map of folder names to volume details
@@ -292,7 +300,8 @@ module "dns" {
     }
   }
 
-  project_name = var.project_name
+  project_name         = var.project_name
+  include_project_name = var.dns_include_project_name
 }
 
 # Local values for firewall rule updates

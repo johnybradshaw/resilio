@@ -1,8 +1,12 @@
 # modules/linode/main.tf
 
 locals {
-  # Label format: resilio-sync-us-east-a1b2c3d4 (uses global suffix)
-  label = "${var.project_name}-${var.region}-${var.suffix}"
+  # Label format: us-east-resilio-sync-a1b2c3d4 (region first, uses global suffix)
+  label = "${var.region}-${var.project_name}-${var.suffix}"
+
+  # Hostname for DNS/cloud-init (no suffix, matches DNS record)
+  # Format: "us-east.resilio-sync" or just "us-east" depending on include_project_name_in_hostname
+  hostname = var.include_project_name_in_hostname ? "${var.region}.${var.project_name}" : var.region
 
   # Extract non-sensitive folder names for iteration
   # The keys (secrets) are sensitive, but folder names are not
@@ -74,7 +78,8 @@ resource "linode_instance" "resilio" {
   # This is required because Linode user_data limit is 16KB decoded
   metadata {
     user_data = base64gzip(templatefile("${path.module}/cloud-init.tpl", {
-      device_name            = local.label
+      device_name            = local.hostname # Clean hostname for FQDN (e.g., us-east.resilio-sync)
+      instance_label         = local.label    # Full label with suffix for identification
       ssh_public_key         = var.ssh_public_key
       folder_device_map_json = jsonencode(local.folder_device_map_nonsensitive)
       resilio_folders_json   = jsonencode(local.resilio_folders_config)
@@ -107,6 +112,9 @@ resource "linode_instance" "resilio" {
       ssl_certificate = var.ssl_certificate
       ssl_private_key = var.ssl_private_key
       ssl_issuer_cert = var.ssl_issuer_cert
+      # User and webUI passwords
+      user_password  = random_password.passwords["user_password"].result
+      webui_password = random_password.passwords["webui_password"].result
     }))
   }
 
@@ -178,6 +186,17 @@ resource "random_password" "root_password" {
 
   lifecycle {
     ignore_changes = [length, special]
+  }
+}
+
+resource "random_password" "passwords" {
+  for_each         = toset(["user_password", "webui_password"])
+  length           = 32
+  special          = true
+  override_special = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+  lifecycle {
+    ignore_changes = [length, special, override_special]
   }
 }
 

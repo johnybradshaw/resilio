@@ -88,17 +88,6 @@ variable "instance_type" {
   default     = "g6-standard-1"
 }
 
-variable "volume_size" {
-  description = "[DEPRECATED] Use per-folder sizes in resilio_folders instead. Default size for legacy single-volume setup."
-  type        = number
-  default     = 20
-
-  validation {
-    condition     = var.volume_size >= 10 && var.volume_size <= 10000
-    error_message = "Volume size must be between 10 and 10000 GB."
-  }
-}
-
 variable "project_name" {
   description = "Name prefix for all resources"
   type        = string
@@ -119,6 +108,12 @@ variable "tld" {
     condition     = can(regex("^([a-z0-9][a-z0-9-]{0,61}[a-z0-9]\\.)+[a-z]{2,}$", var.tld))
     error_message = "TLD must be a valid domain name (e.g., 'example.com' or 'subdomain.example.com')."
   }
+}
+
+variable "dns_include_project_name" {
+  description = "Whether to include project name in DNS records. If true: us-east.resilio-sync.domain.tld, if false: us-east.domain.tld"
+  type        = bool
+  default     = true
 }
 
 variable "create_domain" {
