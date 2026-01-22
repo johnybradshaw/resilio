@@ -116,10 +116,13 @@ module "storage_volumes" {
 # BACKUP OBJECT STORAGE
 # =============================================================================
 
-# Create and manage Object Storage buckets for backups (when backup_enabled = true)
+# Create and manage Object Storage buckets for backups
+# Note: Buckets are created when backup_storage_regions is non-empty, regardless of backup_enabled.
+# This prevents accidental bucket destruction when toggling backup_enabled.
+# The backup_enabled variable only controls whether backup scripts run on instances.
 module "backup_storage" {
   source = "./modules/object-storage"
-  count  = var.backup_enabled ? 1 : 0
+  count  = length(var.backup_storage_regions) > 0 ? 1 : 0
 
   project_name   = var.project_name
   suffix         = random_id.global_suffix.hex
