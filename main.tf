@@ -161,18 +161,18 @@ locals {
 
   # Backup configuration to pass to instances
   backup_config = {
-    enabled           = var.backup_enabled || var.object_storage_access_key != "CHANGEME"
-    mode              = var.backup_mode
-    schedule          = var.backup_schedule
-    transfers         = var.backup_transfers
-    bandwidth_limit   = var.backup_bandwidth_limit
-    versioning        = var.backup_versioning
-    retention_days    = var.backup_retention_days
-    access_key        = local.backup_access_key
-    secret_key        = local.backup_secret_key
-    primary_endpoint  = local.backup_primary_endpoint
-    primary_bucket    = local.backup_primary_bucket
-    all_buckets       = local.backup_buckets
+    enabled          = var.backup_enabled || var.object_storage_access_key != "CHANGEME"
+    mode             = var.backup_mode
+    schedule         = var.backup_schedule
+    transfers        = var.backup_transfers
+    bandwidth_limit  = var.backup_bandwidth_limit
+    versioning       = var.backup_versioning
+    retention_days   = var.backup_retention_days
+    access_key       = local.backup_access_key
+    secret_key       = local.backup_secret_key
+    primary_endpoint = local.backup_primary_endpoint
+    primary_bucket   = local.backup_primary_bucket
+    all_buckets      = local.backup_buckets
   }
 }
 
@@ -205,7 +205,7 @@ module "resilio_firewall" {
 
   project_name = var.project_name
   suffix       = random_id.global_suffix.hex # Use global suffix
-  tags         = local.tags # Concat tags and tld
+  tags         = local.tags                  # Concat tags and tld
 }
 
 # Create jumpbox instance (bastion host for secure access)
@@ -226,14 +226,14 @@ module "linode_instances" {
 
   for_each = toset(var.regions)
 
-  region                 = each.key          # "us-east"
-  instance_type          = var.instance_type # "g6-standard-2"
-  ssh_public_key         = var.ssh_public_key
-  project_name           = var.project_name # "resilio-sync"
-  suffix                 = random_id.global_suffix.hex # Use global suffix
+  region         = each.key          # "us-east"
+  instance_type  = var.instance_type # "g6-standard-2"
+  ssh_public_key = var.ssh_public_key
+  project_name   = var.project_name            # "resilio-sync"
+  suffix         = random_id.global_suffix.hex # Use global suffix
 
   # Per-folder volume configuration (new)
-  resilio_folders = var.resilio_folders       # Map of folder names to {key, size}
+  resilio_folders = var.resilio_folders                      # Map of folder names to {key, size}
   folder_volumes  = module.storage_volumes[each.key].volumes # Map of folder names to volume details
 
   # Deprecated - kept for backward compatibility
