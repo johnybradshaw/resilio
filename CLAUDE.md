@@ -26,7 +26,9 @@ This is a **Terraform infrastructure-as-code** project that deploys Resilio Sync
 │   ├── jumpbox/            # Bastion host module
 │   ├── jumpbox-firewall/   # Jumpbox firewall rules
 │   └── resilio-firewall/   # Resilio instance firewall rules
-├── scripts/                # Helper scripts (backend setup, provider fixes, etc.)
+├── scripts/
+│   ├── cloud-init/         # Scripts transferred to instances via file provisioner
+│   └── *.sh                # Helper scripts (backend setup, provider fixes, etc.)
 ├── docs/                   # Documentation (setup guides, troubleshooting)
 └── .github/                # GitHub configurations (dependabot)
 ```
@@ -94,6 +96,8 @@ Variables containing secrets are marked `sensitive = true`:
 - `resilio_license_key`
 - `ubuntu_advantage_token`
 - `object_storage_access_key`, `object_storage_secret_key`
+- `ssh_private_key` (for file provisioner)
+- SSL certificate variables (auto-generated via ACME)
 
 ### Resource Naming
 
@@ -305,14 +309,57 @@ The `terraform_data.update_resilio_firewall` resource in `main.tf` uses a local-
 
 Volumes have lifecycle protection enabled. See `docs/VOLUME_RESIZE_SAFETY.md` for safe expansion procedures.
 
-### Cloud-Init Template
+### Cloud-Init Template and Script Provisioning
 
-Instance provisioning uses cloud-init template at `modules/linode/cloud-init.tpl` for:
+Instance provisioning uses a two-phase approach to stay within Linode's 16KB user_data limit:
+
+**Phase 1: Cloud-Init** (`modules/linode/cloud-init.tpl`)
 - User creation (`ac-user`)
 - SSH key configuration
-- Resilio Sync installation and configuration
-- Volume mounting
-- Backup script setup (when Object Storage is configured and region is in `backup_regions`)
+- Package installation
+- Volume mounting and filesystem setup
+- Resilio Sync installation and basic configuration
+- Minimal placeholder scripts for bootstrap
+
+**Phase 2: Script Provisioner** (`null_resource.provision_scripts`)
+- Transfers full-featured scripts via SSH after instance boot
+- Uses Terraform's `file` provisioner through the jumpbox
+- Scripts are stored in `scripts/cloud-init/` as templates
+
+**Scripts in `scripts/cloud-init/`:**
+| Script | Purpose |
+|--------|---------|
+| `resilio-folders.sh.tpl` | Folder management CLI (list, add, remove, status) |
+| `volume-auto-expand.sh.tpl` | Automatic filesystem expansion on volume resize |
+| `resilio-backup.sh.tpl` | Backup to Object Storage with versioning |
+| `resilio-rehydrate.sh.tpl` | Restore from backup to new/rebuilt VMs |
+| `resilio-backup-watch.sh.tpl` | Realtime backup via inotify (for hybrid mode) |
+| `collect-diagnostics.sh` | Collect logs for troubleshooting |
+
+**To enable script provisioning**, set these variables:
+```hcl
+provision_scripts = true
+ssh_private_key   = file("~/.ssh/id_rsa")
+jumpbox_ip        = module.jumpbox.ip_address
+```
+
+**Note**: Without `provision_scripts = true`, instances use minimal placeholder scripts from cloud-init. The full scripts can be manually transferred or will be installed on the next `terraform apply` with provisioning enabled.
+
+### SSL Certificates (Let's Encrypt)
+
+The infrastructure automatically provisions SSL certificates via Let's Encrypt using DNS-01 challenge:
+
+- **ACME Provider**: Uses `vancluever/acme` Terraform provider
+- **DNS Challenge**: Validates via Linode DNS (requires domain to use Linode nameservers)
+- **Certificate Scope**: Wildcard cert for `*.{project_name}.{tld}` plus per-region SANs
+- **Auto-Renewal**: Certificates renew when < 30 days remaining
+
+**Certificate files on instances:**
+- `/etc/resilio-sync/ssl/cert.pem` - Server certificate
+- `/etc/resilio-sync/ssl/privkey.pem` - Private key (mode 0640)
+- `/etc/resilio-sync/ssl/chain.pem` - CA chain
+
+**Resilio Web UI**: Accessible via HTTPS on port 8888 with valid SSL certificate.
 
 ### Backup Configuration
 

@@ -5,14 +5,18 @@ A production-ready Terraform solution for deploying Resilio Sync on Linode acros
 ## ✨ Features
 
 - **Multi-Region Deployment**: Deploy across multiple Linode regions with automatic cross-region synchronization
-- **Multiple Folder Support**: Sync multiple Resilio folders simultaneously with dedicated directories per folder key
-- **Automated Backups**: Daily incremental backups to Linode Object Storage with 30-day retention
+- **Per-Folder Volumes**: Each Resilio folder gets its own dedicated Linode volume for independent sizing and isolation
+- **SSL/HTTPS**: Automatic Let's Encrypt certificates via DNS-01 challenge for secure Resilio Web UI
+- **Automated Backups**: Configurable backups to Linode Object Storage with versioning and retention policies
+- **Backup Modes**: Scheduled (cron), realtime (inotify), or hybrid backup strategies
+- **Rehydration**: Quick restore from Object Storage backup to new or rebuilt VMs
 - **Dedicated Logging**: Resilio Sync logs to `/var/log/resilio-sync/sync.log` with 7-day retention
-- **Secure by Default**: Firewall-protected instances with configurable SSH access control via jumpbox (bastion)
+- **Secure by Default**: Firewall-protected instances with SSH access via jumpbox (bastion) only
 - **Automated DNS Management**: Automatic A and AAAA record creation with Linode DNS
-- **Block Storage**: Persistent volumes with encryption support and comprehensive lifecycle protection
-- **Volume Resize Safety**: Online volume expansion with zero downtime and data loss protection
+- **Block Storage**: Persistent volumes with lifecycle protection (`prevent_destroy = true`)
+- **Volume Resize Safety**: Online volume expansion with automatic filesystem growth on reboot
 - **Cloud-Init Bootstrap**: Automated instance configuration with Ubuntu Pro hardening
+- **Script Provisioning**: Large scripts transferred via SSH to stay within cloud-init size limits
 - **State Management**: Configurable remote state backend support (S3, Terraform Cloud, GCS, Azure)
 - **CI/CD Ready**: Pre-commit hooks for automated validation and security scanning
 
@@ -127,10 +131,10 @@ Configure these at your registrar:
 
 ```
 .
-├── main.tf                      # Main configuration
+├── main.tf                      # Main configuration and orchestration
 ├── variables.tf                 # Input variables with validation
 ├── outputs.tf                   # Output definitions
-├── provider.tf                  # Provider configuration
+├── provider.tf                  # Provider configuration (Linode, ACME)
 ├── tags.tf                      # Tag definitions
 ├── backend.tf.example           # Remote state backend examples
 ├── terraform.tfvars.example     # Example variables file
@@ -139,26 +143,27 @@ Configure these at your registrar:
 ├── .gitignore                   # Git ignore rules
 ├── modules/
 │   ├── linode/                  # Linode instance module
-│   │   ├── main.tf
+│   │   ├── main.tf              # Instance + script provisioner
 │   │   ├── variables.tf
 │   │   ├── outputs.tf
 │   │   ├── README.md
-│   │   └── cloud-init.tpl
-│   ├── volume/                  # Block storage module
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   ├── outputs.tf
-│   │   └── README.md
-│   ├── firewall/                # Firewall module
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   ├── outputs.tf
-│   │   └── README.md
-│   └── dns/                     # DNS management module
-│       ├── main.tf
-│       ├── variables.tf
-│       ├── outputs.tf
-│       └── README.md
+│   │   └── cloud-init.tpl       # Cloud-init template (minimal scripts)
+│   ├── volume/                  # Block storage module (per-folder volumes)
+│   ├── dns/                     # DNS record management
+│   ├── object-storage/          # Object Storage buckets and keys
+│   ├── jumpbox/                 # Bastion host module
+│   ├── jumpbox-firewall/        # Jumpbox firewall rules
+│   └── resilio-firewall/        # Resilio instance firewall rules
+├── scripts/
+│   ├── cloud-init/              # Scripts transferred via file provisioner
+│   │   ├── resilio-folders.sh.tpl
+│   │   ├── volume-auto-expand.sh.tpl
+│   │   ├── resilio-backup.sh.tpl
+│   │   ├── resilio-rehydrate.sh.tpl
+│   │   ├── resilio-backup-watch.sh.tpl
+│   │   └── collect-diagnostics.sh
+│   └── *.sh                     # Helper scripts (backend setup, etc.)
+├── docs/                        # Documentation
 └── LICENSE
 ```
 
@@ -390,12 +395,19 @@ sudo tail -f /var/log/resilio-backup.log
 # Trigger manual backup
 sudo /usr/local/bin/resilio-backup.sh
 
-# List backups (from local machine with rclone configured)
-rclone ls r:resilio-backups/
+# List available backups
+sudo /usr/local/bin/resilio-rehydrate.sh --list
 
-# Restore from backup
-rclone sync r:resilio-backups/<hostname>/ /mnt/resilio-data/ --progress
+# Restore from backup (rehydrate a new/rebuilt VM)
+sudo /usr/local/bin/resilio-rehydrate.sh                    # Auto-detect source
+sudo /usr/local/bin/resilio-rehydrate.sh --source hostname  # Specific source
+sudo /usr/local/bin/resilio-rehydrate.sh --dry-run          # Preview only
 ```
+
+**Backup Modes** (configured via `backup_mode` variable):
+- `scheduled` - Daily cron-based backup (default)
+- `realtime` - inotify-based backup on file changes
+- `hybrid` - Both scheduled and realtime
 
 ## 🔄 Upgrade Guide
 
@@ -477,6 +489,15 @@ Each module has detailed documentation:
 - `scripts/setup-backend-credentials.sh` - Load backend credentials from 1Password
 - `scripts/fix-provider-lock.sh` - Fix provider lock file issues (use --clean flag for full reset)
 - `scripts/import-existing-resources.sh` - Import existing Linode resources into Terraform state
+
+### Cloud-Init Scripts (transferred via provisioner)
+
+- `scripts/cloud-init/resilio-folders.sh.tpl` - Folder management CLI
+- `scripts/cloud-init/volume-auto-expand.sh.tpl` - Automatic volume expansion
+- `scripts/cloud-init/resilio-backup.sh.tpl` - Object Storage backup
+- `scripts/cloud-init/resilio-rehydrate.sh.tpl` - Restore from backup
+- `scripts/cloud-init/resilio-backup-watch.sh.tpl` - Realtime backup watcher
+- `scripts/cloud-init/collect-diagnostics.sh` - Log collection for troubleshooting
 
 ## 🤝 Contributing
 
