@@ -7,7 +7,7 @@ resource "linode_domain_record" "resilio_A" {
   for_each    = var.dns_records
   domain_id   = var.domain_id
   record_type = "A"
-  name        = "${var.project_name}.${each.key}" # e.g., "resilio-sync.us-east"
+  name        = "${each.key}.${var.project_name}" # e.g., "us-east.resilio-sync"
   target      = each.value.ipv4
   ttl_sec     = var.ttl_sec
 }
@@ -17,7 +17,7 @@ resource "linode_domain_record" "resilio_AAAA" {
   for_each    = var.dns_records
   domain_id   = var.domain_id
   record_type = "AAAA"
-  name        = "${var.project_name}.${each.key}" # e.g., "resilio-sync.us-east"
+  name        = "${each.key}.${var.project_name}" # e.g., "us-east.resilio-sync"
   target      = replace(each.value.ipv6, "/128", "")
   ttl_sec     = var.ttl_sec
 }

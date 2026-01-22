@@ -82,7 +82,7 @@ resource "acme_certificate" "resilio" {
   common_name     = "${var.project_name}.${var.tld}"
   subject_alternative_names = concat(
     ["*.${var.project_name}.${var.tld}"],
-    [for region in var.regions : "${var.project_name}.${region}.${var.tld}"]
+    [for region in var.regions : "${region}.${var.project_name}.${var.tld}"]
   )
 
   dns_challenge {

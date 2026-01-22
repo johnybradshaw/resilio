@@ -1,8 +1,11 @@
 # modules/linode/main.tf
 
 locals {
-  # Label format: resilio-sync-us-east-a1b2c3d4 (uses global suffix)
-  label = "${var.project_name}-${var.region}-${var.suffix}"
+  # Label format: us-east-resilio-sync-a1b2c3d4 (region first, uses global suffix)
+  label = "${var.region}-${var.project_name}-${var.suffix}"
+
+  # Hostname for DNS/cloud-init: us-east.resilio-sync (no suffix, matches DNS record)
+  hostname = "${var.region}.${var.project_name}"
 
   # Extract non-sensitive folder names for iteration
   # The keys (secrets) are sensitive, but folder names are not
@@ -74,7 +77,8 @@ resource "linode_instance" "resilio" {
   # This is required because Linode user_data limit is 16KB decoded
   metadata {
     user_data = base64gzip(templatefile("${path.module}/cloud-init.tpl", {
-      device_name            = local.label
+      device_name            = local.hostname # Clean hostname for FQDN (e.g., us-east.resilio-sync)
+      instance_label         = local.label    # Full label with suffix for identification
       ssh_public_key         = var.ssh_public_key
       folder_device_map_json = jsonencode(local.folder_device_map_nonsensitive)
       resilio_folders_json   = jsonencode(local.resilio_folders_config)

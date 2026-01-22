@@ -8,8 +8,8 @@ output "instance_ips" {
       # strip off the /128 on the CIDR
       ipv6 = replace(instance.ipv6_address, "/128", "")
 
-      # display fqdn
-      fqdn = "${instance.instance_label}.${var.tld}"
+      # display fqdn (matches DNS record, e.g., us-east.resilio-sync.domain.tld)
+      fqdn = "${instance.hostname}.${var.tld}"
     }
   }
 }
@@ -133,7 +133,7 @@ output "vm_credentials" {
       user_password  = instance.user_password
       webui_username = "admin"
       webui_password = instance.webui_password
-      webui_url      = "https://${instance.instance_label}.${var.tld}:8888"
+      webui_url      = "https://${instance.hostname}.${var.tld}:8888"
     }
   }
 }
