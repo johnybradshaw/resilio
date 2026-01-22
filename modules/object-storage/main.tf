@@ -14,9 +14,12 @@ resource "linode_object_storage_bucket" "backup" {
   # CORS configuration for potential web access
   cors_enabled = false
 
-  lifecycle {
-    prevent_destroy = true
-  }
+  # Note: prevent_destroy is intentionally NOT set here because:
+  # 1. It blocks legitimate operations like changing backup_storage_regions
+  # 2. Terraform plan/apply workflow already requires explicit approval
+  # 3. Object versioning (enabled by default) protects against data loss
+  # 4. Buckets with objects cannot be deleted without first emptying them
+  # To protect against accidental deletion, use CI/CD approval workflows
 }
 
 # Object Storage access key (unlimited access)
