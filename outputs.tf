@@ -39,13 +39,19 @@ output "resilio_firewall_id" {
 }
 
 output "domain_id" {
-  description = "ID of the created DNS domain"
-  value       = module.dns.domain_id
+  description = "ID of the DNS domain (created or existing)"
+  value       = local.domain_id
 }
 
 output "dns_nameservers" {
   description = "Nameservers for the DNS domain (configure these at your domain registrar)"
-  value       = module.dns.nameservers
+  value = [
+    "ns1.linode.com",
+    "ns2.linode.com",
+    "ns3.linode.com",
+    "ns4.linode.com",
+    "ns5.linode.com"
+  ]
 }
 
 output "ssh_connection_strings" {
@@ -73,4 +79,46 @@ output "allowed_ssh_cidr" {
 output "firewall_configuration" {
   description = "Firewall configuration status"
   value       = "✅ Two separate firewalls configured: jumpbox-firewall (static rules) and resilio-firewall (auto-updated via Linode API)"
+}
+
+output "global_suffix" {
+  description = "Global suffix shared across all VMs and resources (useful for identifying related resources)"
+  value       = random_id.global_suffix.hex
+}
+
+output "ssl_certificate_domains" {
+  description = "Domains covered by the SSL certificate"
+  value       = acme_certificate.resilio.certificate_domain
+}
+
+output "ssl_certificate_expiry" {
+  description = "SSL certificate expiry date"
+  value       = acme_certificate.resilio.certificate_not_after
+}
+
+# Backup outputs
+output "backup_enabled" {
+  description = "Whether Terraform-managed backups are enabled"
+  value       = var.backup_enabled
+}
+
+output "backup_buckets" {
+  description = "Backup storage buckets by region (only when backup_enabled=true)"
+  value       = var.backup_enabled && length(module.backup_storage) > 0 ? module.backup_storage[0].buckets : {}
+}
+
+output "backup_mode" {
+  description = "Backup scheduling mode (scheduled, realtime, or hybrid)"
+  value       = var.backup_mode
+}
+
+output "backup_source_regions" {
+  description = "Regions that will run backups to Object Storage"
+  value       = local.effective_backup_source_regions
+}
+
+output "backup_rehydrate_command" {
+  description = "Command to restore from backup on a new VM"
+  value       = var.backup_enabled || var.object_storage_access_key != "CHANGEME" ? "sudo /usr/local/bin/resilio-rehydrate.sh --list" : "Backups not configured"
+  sensitive   = true
 }

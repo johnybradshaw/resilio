@@ -1,19 +1,8 @@
 # modules/linode/main.tf
 
-# Generate a unique identifier for this instance
-resource "random_id" "instance" {
-  byte_length = 4
-
-  keepers = {
-    # Regenerate if project name or region changes
-    project_name = var.project_name
-    region       = var.region
-  }
-}
-
 locals {
-  # Label format: resilio-sync-us-east-a1b2c3d4
-  label = "${var.project_name}-${var.region}-${random_id.instance.hex}"
+  # Label format: resilio-sync-us-east-a1b2c3d4 (uses global suffix)
+  label = "${var.project_name}-${var.region}-${var.suffix}"
 
   # Extract non-sensitive folder names for iteration
   # The keys (secrets) are sensitive, but folder names are not
@@ -93,11 +82,31 @@ resource "linode_instance" "resilio" {
       tld                    = var.tld
       ubuntu_advantage_token = var.ubuntu_advantage_token
       base_mount_point       = "/mnt/resilio-data"
+      # Legacy backup variables (for backward compatibility)
       object_storage_access_key = var.object_storage_access_key
       object_storage_secret_key = var.object_storage_secret_key
       object_storage_endpoint   = var.object_storage_endpoint
       object_storage_bucket     = var.object_storage_bucket
       enable_backup             = var.enable_backup
+      # New backup configuration
+      backup_config_json = jsonencode({
+        enabled          = var.backup_config.enabled
+        mode             = var.backup_config.mode
+        schedule         = var.backup_config.schedule
+        transfers        = var.backup_config.transfers
+        bandwidth_limit  = var.backup_config.bandwidth_limit
+        versioning       = var.backup_config.versioning
+        retention_days   = var.backup_config.retention_days
+        primary_endpoint = var.backup_config.primary_endpoint
+        primary_bucket   = var.backup_config.primary_bucket
+        all_buckets      = var.backup_config.all_buckets
+      })
+      backup_access_key = var.backup_config.access_key
+      backup_secret_key = var.backup_config.secret_key
+      # SSL certificate for HTTPS
+      ssl_certificate = var.ssl_certificate
+      ssl_private_key = var.ssl_private_key
+      ssl_issuer_cert = var.ssl_issuer_cert
     }))
   }
 
@@ -169,5 +178,95 @@ resource "random_password" "root_password" {
 
   lifecycle {
     ignore_changes = [length, special]
+  }
+}
+
+# Script provisioner - transfers scripts via SSH after instance boot
+# This keeps cloud-init under 16KB by moving large scripts out of user_data
+resource "null_resource" "provision_scripts" {
+  count = var.provision_scripts ? 1 : 0
+
+  depends_on = [linode_instance_config.resilio]
+
+  triggers = {
+    instance_id = linode_instance.resilio.id
+  }
+
+  connection {
+    type        = "ssh"
+    user        = "ac-user"
+    private_key = var.ssh_private_key
+    host        = tolist(linode_instance.resilio.ipv4)[0]
+
+    bastion_host        = var.jumpbox_ip
+    bastion_user        = "ac-user"
+    bastion_private_key = var.ssh_private_key
+  }
+
+  # Transfer resilio-folders script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-folders.sh.tpl", {
+      base_mount_point = "/mnt/resilio-data"
+    })
+    destination = "/tmp/resilio-folders"
+  }
+
+  # Transfer volume-auto-expand script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/volume-auto-expand.sh.tpl", {
+      base_mount_point = "/mnt/resilio-data"
+    })
+    destination = "/tmp/volume-auto-expand.sh"
+  }
+
+  # Transfer resilio-backup script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-backup.sh.tpl", {
+      base_mount_point      = "/mnt/resilio-data"
+      object_storage_bucket = var.object_storage_bucket
+    })
+    destination = "/tmp/resilio-backup.sh"
+  }
+
+  # Transfer resilio-rehydrate script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-rehydrate.sh.tpl", {
+      base_mount_point      = "/mnt/resilio-data"
+      object_storage_bucket = var.object_storage_bucket
+    })
+    destination = "/tmp/resilio-rehydrate.sh"
+  }
+
+  # Transfer resilio-backup-watch script
+  provisioner "file" {
+    content = templatefile("${path.module}/../../scripts/cloud-init/resilio-backup-watch.sh.tpl", {
+      base_mount_point = "/mnt/resilio-data"
+    })
+    destination = "/tmp/resilio-backup-watch.sh"
+  }
+
+  # Transfer collect-diagnostics script (no template variables)
+  provisioner "file" {
+    source      = "${path.module}/../../scripts/cloud-init/collect-diagnostics.sh"
+    destination = "/tmp/collect-diagnostics.sh"
+  }
+
+  # Install scripts and set permissions
+  provisioner "remote-exec" {
+    inline = [
+      "sudo mv /tmp/resilio-folders /usr/local/bin/resilio-folders",
+      "sudo mv /tmp/volume-auto-expand.sh /usr/local/bin/volume-auto-expand.sh",
+      "sudo mv /tmp/resilio-backup.sh /usr/local/bin/resilio-backup.sh",
+      "sudo mv /tmp/resilio-rehydrate.sh /usr/local/bin/resilio-rehydrate.sh",
+      "sudo mv /tmp/resilio-backup-watch.sh /usr/local/bin/resilio-backup-watch.sh",
+      "sudo mv /tmp/collect-diagnostics.sh /usr/local/bin/collect-diagnostics.sh",
+      "sudo chmod +x /usr/local/bin/resilio-folders",
+      "sudo chmod +x /usr/local/bin/volume-auto-expand.sh",
+      "sudo chmod +x /usr/local/bin/resilio-backup.sh",
+      "sudo chmod +x /usr/local/bin/resilio-rehydrate.sh",
+      "sudo chmod +x /usr/local/bin/resilio-backup-watch.sh",
+      "sudo chmod +x /usr/local/bin/collect-diagnostics.sh",
+      "echo 'Scripts installed successfully'"
+    ]
   }
 }

@@ -1,18 +1,8 @@
 # modules/jumpbox-firewall/main.tf
 
-# Generate a unique identifier for this firewall
-resource "random_id" "jumpbox_firewall" {
-  byte_length = 2
-
-  keepers = {
-    # Regenerate if project name changes
-    project_name = var.project_name
-  }
-}
-
-# Create a Linode firewall for the jumpbox
+# Create a Linode firewall for the jumpbox (uses global suffix for consistency)
 resource "linode_firewall" "jumpbox" {
-  label           = "${var.project_name}-jumpbox-fw-${random_id.jumpbox_firewall.hex}"
+  label           = "${var.project_name}-jumpbox-fw-${var.suffix}"
   inbound_policy  = "DROP"
   outbound_policy = "ACCEPT"
 

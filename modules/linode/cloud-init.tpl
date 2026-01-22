@@ -112,6 +112,7 @@ packages:
   # Utilities
   - ncdu # disk usage
   - rclone # backup to object storage
+  - inotify-tools # realtime file change monitoring for backups
 
 # User Management
 users:
@@ -187,6 +188,30 @@ write_files:
         create 0640 root root
       }
 
+      # Resilio realtime backup watcher log
+      /var/log/resilio-backup-watch.log {
+        su root root
+        daily
+        rotate 7
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
+
+      # Resilio rehydration log
+      /var/log/resilio-rehydrate.log {
+        su root root
+        weekly
+        rotate 4
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 0640 root root
+      }
+
       # Volume expansion log - rotated weekly, keep 4 weeks
       /var/log/volume-expand.log {
         su root root
@@ -229,6 +254,22 @@ write_files:
   - path: /etc/resilio-sync/license.key
     permissions: '0644'
     content: "${resilio_license_key}"
+  # SSL Certificate from Let's Encrypt (for HTTPS web UI)
+  - path: /etc/resilio-sync/ssl/cert.pem
+    permissions: '0644'
+    owner: root:rslsync
+    content: |
+      ${ssl_certificate}
+  - path: /etc/resilio-sync/ssl/privkey.pem
+    permissions: '0640'
+    owner: root:rslsync
+    content: |
+      ${ssl_private_key}
+  - path: /etc/resilio-sync/ssl/chain.pem
+    permissions: '0644'
+    owner: root:rslsync
+    content: |
+      ${ssl_issuer_cert}
   # Default folders config - only used if no config exists on volume
   # Per-folder volumes: each folder mounts at ${base_mount_point}/<folder_name>
   - path: /etc/resilio-sync/default-folders.json
@@ -241,6 +282,7 @@ write_files:
     content: |
       ${folder_device_map_json}
   # Config template - shared_folders populated from volume at boot
+  # Includes HTTPS web UI configuration with Let's Encrypt SSL certificate
   - path: /etc/resilio-sync/config.json.tpl
     permissions: '0644'
     content: |
@@ -250,127 +292,36 @@ write_files:
         "storage_path": "${base_mount_point}/.sync",
         "pid_file": "/var/run/resilio-sync/sync.pid",
         "use_upnp": false,
+        "webui": {
+          "listen": "0.0.0.0:8888",
+          "force_https": true,
+          "ssl_certificate": "/etc/resilio-sync/ssl/cert.pem",
+          "ssl_private_key": "/etc/resilio-sync/ssl/privkey.pem"
+        },
         "shared_folders": FOLDERS_PLACEHOLDER
       }
-  # Folder management script - allows non-destructive folder changes via SSH
-  # Per-folder volumes: each folder has its own volume and mount point
+  # Folder management script placeholder - full version transferred via file provisioner
+  # This minimal version handles config generation for cloud-init
   - path: /usr/local/bin/resilio-folders
     permissions: '0755'
     content: |
       #!/bin/bash
+      # Minimal resilio-folders for cloud-init bootstrap
+      # Full version transferred via Terraform file provisioner
       set -euo pipefail
       BASE_MOUNT="${base_mount_point}"
       FOLDERS_FILE="$BASE_MOUNT/.sync/folders.json"
-      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
       CONFIG_TPL="/etc/resilio-sync/config.json.tpl"
       CONFIG="/etc/resilio-sync/config.json"
-
-      generate_config() {
-        if [ ! -f "$FOLDERS_FILE" ]; then
-          echo "Error: $FOLDERS_FILE not found" >&2
-          exit 1
-        fi
-        # Read folders and inject into config template
-        FOLDERS=$(cat "$FOLDERS_FILE")
-        sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" > "$CONFIG"
-        chown rslsync:rslsync "$CONFIG"
-        echo "Config regenerated at $CONFIG"
-      }
-
       case "$${1:-help}" in
-        list)
-          echo "Configured folders (from Terraform):"
-          if [ -f "$DEVICE_MAP" ]; then
-            jq -r 'to_entries[] | "  - \(.key): \(.value.mount_point) (\(.value.device_path))"' "$DEVICE_MAP"
-          fi
-          echo ""
-          echo "Active Resilio folders:"
-          if [ -f "$FOLDERS_FILE" ]; then
-            jq -r '.[] | "  - \(.dir) [\(.secret[0:8])...]"' "$FOLDERS_FILE"
-          else
-            echo "  (no folders configured)"
-          fi
+        regenerate|apply)
+          [ -f "$FOLDERS_FILE" ] || exit 1
+          FOLDERS=$(cat "$FOLDERS_FILE")
+          sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" "$CONFIG_TPL" | jq . > "$CONFIG"
+          chown rslsync:rslsync "$CONFIG"
+          [ "$1" = "apply" ] && systemctl restart resilio-sync
           ;;
-        add)
-          if [ -z "$${2:-}" ] || [ -z "$${3:-}" ]; then
-            echo "Usage: resilio-folders add <folder_key> <folder_name>"
-            echo "Example: resilio-folders add BXXXXXXX... documents"
-            echo ""
-            echo "NOTE: For per-folder volumes, the folder must already be defined"
-            echo "in Terraform (resilio_folders variable). This command adds the"
-            echo "folder to Resilio's config for an existing mounted volume."
-            exit 1
-          fi
-          KEY="$2"
-          FOLDER_NAME="$3"
-          FULL_PATH="$BASE_MOUNT/$FOLDER_NAME"
-          # Verify mount point exists (should be pre-created by Terraform)
-          if [ ! -d "$FULL_PATH" ]; then
-            echo "Warning: $FULL_PATH does not exist. Creating..."
-            mkdir -p "$FULL_PATH"
-          fi
-          chown rslsync:rslsync "$FULL_PATH"
-          # Add to folders.json
-          jq --arg key "$KEY" --arg dir "$FULL_PATH" \
-            '. += [{"secret": $key, "dir": $dir, "use_relay_server": true, "use_tracker": true, "search_lan": false, "use_sync_trash": true, "overwrite_changes": false, "selective_sync": false}]' \
-            "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
-          chown rslsync:rslsync "$FOLDERS_FILE"
-          generate_config
-          echo "Added folder: $FOLDER_NAME"
-          echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
-          ;;
-        remove)
-          if [ -z "$${2:-}" ]; then
-            echo "Usage: resilio-folders remove <folder_name>"
-            echo "Note: This removes the folder from Resilio config but keeps data"
-            exit 1
-          fi
-          FOLDER_NAME="$2"
-          FULL_PATH="$BASE_MOUNT/$FOLDER_NAME"
-          jq --arg dir "$FULL_PATH" 'map(select(.dir != $dir))' \
-            "$FOLDERS_FILE" > "$FOLDERS_FILE.tmp" && mv "$FOLDERS_FILE.tmp" "$FOLDERS_FILE"
-          chown rslsync:rslsync "$FOLDERS_FILE"
-          generate_config
-          echo "Removed folder: $FOLDER_NAME (data NOT deleted)"
-          echo "Restart Resilio Sync to apply: sudo systemctl restart resilio-sync"
-          ;;
-        status)
-          echo "Volume Status:"
-          if [ -f "$DEVICE_MAP" ]; then
-            jq -r 'to_entries[] | .value | "\(.device_path) \(.label) \(.mount_point)"' "$DEVICE_MAP" | \
-            while read -r DEV LABEL MOUNT; do
-              SIZE=$(df -h "$MOUNT" 2>/dev/null | tail -1 | awk '{print $2}')
-              USED=$(df -h "$MOUNT" 2>/dev/null | tail -1 | awk '{print $3}')
-              AVAIL=$(df -h "$MOUNT" 2>/dev/null | tail -1 | awk '{print $4}')
-              echo "  $LABEL: $USED used / $SIZE total ($AVAIL available)"
-            done
-          fi
-          ;;
-        regenerate)
-          generate_config
-          ;;
-        apply)
-          generate_config
-          systemctl restart resilio-sync
-          echo "Config applied and Resilio Sync restarted"
-          ;;
-        *)
-          echo "Resilio Sync Folder Manager (Per-Folder Volumes)"
-          echo ""
-          echo "Usage: resilio-folders <command> [args]"
-          echo ""
-          echo "Commands:"
-          echo "  list                     - List configured folders and volumes"
-          echo "  status                   - Show volume disk usage"
-          echo "  add <key> <folder>       - Add a new folder to Resilio config"
-          echo "  remove <folder>          - Remove a folder (keeps data)"
-          echo "  regenerate               - Regenerate config from folders.json"
-          echo "  apply                    - Regenerate config and restart service"
-          echo ""
-          echo "Config files:"
-          echo "  Folders: $FOLDERS_FILE"
-          echo "  Device map: $DEVICE_MAP"
-          ;;
+        *) echo "Minimal bootstrap version. Full version pending provisioner transfer." ;;
       esac
 
   - path: /etc/audit/rules.d/basic.rules
@@ -386,109 +337,27 @@ write_files:
       -w /etc/cron.d/ -p wa -k cron_changes
       -w /var/log/wtmp -p wa -k logins
       -w /var/log/lastlog -p wa -k logins
-  # Volume auto-expand script - automatically grows filesystem when volumes are resized
-  # Per-folder volumes: expands all resilio-* labeled volumes
+  # Volume auto-expand script placeholder - full version transferred via file provisioner
+  # This minimal version handles basic expansion for cloud-init bootstrap
   - path: /usr/local/bin/volume-auto-expand.sh
     permissions: '0755'
     content: |
       #!/bin/bash
-      # Automatically expand filesystems if volumes have been resized
-      # Runs on boot via systemd before resilio-sync starts
-      # Handles multiple per-folder volumes with label-based detection
+      # Minimal volume-auto-expand for cloud-init bootstrap
+      # Full version transferred via Terraform file provisioner
       set -euo pipefail
-
       DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
-      BASE_MOUNT="${base_mount_point}"
       LOG="/var/log/volume-expand.log"
-
       log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
-
-      expand_volume() {
-        local DEVICE="$1"
-        local PARTITION="$2"
-        local LABEL="$3"
-        local EXPECTED_MOUNT="$4"
-
-        # Check if partition exists
-        if [ ! -b "$PARTITION" ]; then
-          log "[$LABEL] Partition $PARTITION not found, skipping"
-          return 0
-        fi
-
-        # DUAL VERIFICATION: Check both label AND mount point match expected values
-        # This prevents accidental expansion of wrong volumes
-        ACTUAL_LABEL=$(blkid -s LABEL -o value "$PARTITION" 2>/dev/null || echo "")
-        ACTUAL_MOUNT=$(findmnt -n -o TARGET "$PARTITION" 2>/dev/null || echo "")
-
-        if [ "$ACTUAL_LABEL" != "$LABEL" ]; then
-          log "[$LABEL] WARNING: Label mismatch - expected '$LABEL', found '$ACTUAL_LABEL'. Skipping."
-          return 1
-        fi
-
-        if [ -n "$ACTUAL_MOUNT" ] && [ "$ACTUAL_MOUNT" != "$EXPECTED_MOUNT" ]; then
-          log "[$LABEL] WARNING: Mount mismatch - expected '$EXPECTED_MOUNT', found '$ACTUAL_MOUNT'. Skipping."
-          return 1
-        fi
-
-        # Verify mount point is under our base directory (safety check)
-        if [[ "$EXPECTED_MOUNT" != "$BASE_MOUNT"/* ]]; then
-          log "[$LABEL] WARNING: Mount point $EXPECTED_MOUNT is not under $BASE_MOUNT. Skipping."
-          return 1
-        fi
-
-        # Get sizes in bytes
-        DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
-        PART_SIZE=$(blockdev --getsize64 "$PARTITION")
-
-        # Calculate difference (account for GPT overhead ~1MB)
-        DIFF=$((DEVICE_SIZE - PART_SIZE))
-        THRESHOLD=$((100 * 1024 * 1024))  # 100MB threshold
-
-        if [ "$DIFF" -gt "$THRESHOLD" ]; then
-          log "[$LABEL] Volume resize detected: device=$((DEVICE_SIZE/1024/1024))MB, partition=$((PART_SIZE/1024/1024))MB"
-          log "[$LABEL] Expanding partition..."
-
-          # Grow partition to fill device
-          if growpart "$DEVICE" 1; then
-            log "[$LABEL] Partition expanded successfully"
-          else
-            log "[$LABEL] ERROR: Failed to expand partition"
-            return 1
-          fi
-
-          # Resize filesystem (works online for ext4)
-          log "[$LABEL] Expanding filesystem..."
-          if resize2fs "$PARTITION"; then
-            NEW_SIZE=$(blockdev --getsize64 "$PARTITION")
-            log "[$LABEL] Filesystem expanded successfully: $((NEW_SIZE/1024/1024))MB"
-          else
-            log "[$LABEL] ERROR: Failed to expand filesystem"
-            return 1
-          fi
-        else
-          log "[$LABEL] No expansion needed: device and partition sizes match"
-        fi
-      }
-
-      log "Starting volume auto-expansion check..."
-
-      # Check if device map exists
-      if [ ! -f "$DEVICE_MAP" ]; then
-        log "No device map found at $DEVICE_MAP, skipping"
-        exit 0
-      fi
-
-      # Process each volume from the device map
-      ERRORS=0
-      jq -r 'to_entries[] | "\(.value.device_path) \(.value.partition) \(.value.label) \(.value.mount_point)"' "$DEVICE_MAP" | \
-      while read -r DEVICE PARTITION LABEL MOUNT; do
-        if ! expand_volume "$DEVICE" "$PARTITION" "$LABEL" "$MOUNT"; then
-          ERRORS=$((ERRORS + 1))
-        fi
+      log "Starting volume expansion check..."
+      [ -f "$DEVICE_MAP" ] || { log "No device map, skipping"; exit 0; }
+      jq -r 'to_entries[] | "\(.value.device_path) \(.value.partition)"' "$DEVICE_MAP" | \
+      while read -r DEV PART; do
+        [ -b "$PART" ] || continue
+        growpart "$DEV" 1 2>/dev/null || true
+        resize2fs "$PART" 2>/dev/null || true
       done
-
-      log "Volume auto-expansion check complete"
-      exit 0
+      log "Volume expansion complete"
 
   # Systemd service for volume auto-expansion
   - path: /etc/systemd/system/volume-auto-expand.service
@@ -508,145 +377,78 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # Resilio backup script - backs up all per-folder volumes
+  # Backup configuration file
+  - path: /etc/resilio-sync/backup-config.json
+    permissions: '0600'
+    content: |
+      ${backup_config_json}
+
+  # Backup script placeholder - full version transferred via file provisioner
   - path: /usr/local/bin/resilio-backup.sh
     permissions: '0755'
     content: |
       #!/bin/bash
-      set -euo pipefail
-      D=$(date +%Y%m%d-%H%M%S)
-      H=$(hostname -f)
-      L="/var/log/resilio-backup.log"
-      DEVICE_MAP="/etc/resilio-sync/folder-device-map.json"
-      BUCKET="${object_storage_bucket}"
+      # Minimal backup script placeholder for cloud-init
+      # Full version transferred via Terraform file provisioner
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backup script not yet provisioned" >> /var/log/resilio-backup.log
+      exit 0
 
-      log() { echo "[$D] $1" | tee -a "$L"; }
+  - path: /usr/local/bin/resilio-rehydrate.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Placeholder - full version transferred via Terraform file provisioner
+      echo "Rehydrate script not yet provisioned. Run terraform apply with provision_scripts=true."
+      exit 1
 
-      log "Starting backup of all folders"
+  - path: /usr/local/bin/resilio-backup-watch.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Placeholder - full version transferred via Terraform file provisioner
+      echo "Backup watch script not yet provisioned"
+      exit 1
 
-      # Check if device map exists
-      if [ ! -f "$DEVICE_MAP" ]; then
-        log "No device map found, falling back to base mount"
-        rclone sync "${base_mount_point}" "r:$BUCKET/$H" \
-          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
-          --transfers 8 --log-file="$L" --log-level INFO
-        exit $?
-      fi
+  # Systemd service for realtime backup watcher
+  - path: /etc/systemd/system/resilio-backup-watch.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Resilio Sync Realtime Backup Watcher
+      After=resilio-sync.service
+      Wants=resilio-sync.service
 
-      # Backup each folder volume separately
-      ERRORS=0
-      jq -r 'to_entries[] | "\(.key) \(.value.mount_point)"' "$DEVICE_MAP" | \
-      while read -r FOLDER_NAME MOUNT_POINT; do
-        log "Backing up folder: $FOLDER_NAME from $MOUNT_POINT"
-        if rclone sync "$MOUNT_POINT" "r:$BUCKET/$H/$FOLDER_NAME" \
-          --exclude ".sync/StreamsList" --exclude ".sync/DownloadState" --exclude "*.!sync" \
-          --transfers 8 --log-file="$L" --log-level INFO; then
-          log "Backup complete: $FOLDER_NAME"
-        else
-          log "ERROR: Backup failed for $FOLDER_NAME"
-          ERRORS=$((ERRORS + 1))
-        fi
-      done
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/bin/resilio-backup-watch.sh
+      Restart=always
+      RestartSec=10
+      User=root
 
-      # Cleanup old files
-      rclone delete "r:$BUCKET/$H" --min-age 30d >> "$L" 2>&1 || true
+      [Install]
+      WantedBy=multi-user.target
 
-      if [ "$ERRORS" -gt 0 ]; then
-        log "Backup completed with $ERRORS errors"
-        exit 1
-      else
-        log "Backup completed successfully"
-      fi
+  # rclone configuration with all backup remotes
   - path: /root/.config/rclone/rclone.conf
     permissions: '0600'
     content: |
+      # Primary backup remote (legacy compatible)
       [r]
-      type=s3
-      provider=Ceph
-      access_key_id=${object_storage_access_key}
-      secret_access_key=${object_storage_secret_key}
-      endpoint=${object_storage_endpoint}
-      acl=private
+      type = s3
+      provider = Ceph
+      access_key_id = ${backup_access_key}
+      secret_access_key = ${backup_secret_key}
+      endpoint = ${object_storage_endpoint}
+      acl = private
 
-  # Diagnostic script to collect all logs for troubleshooting
+  # Diagnostic script placeholder - full version transferred via file provisioner
   - path: /usr/local/bin/collect-diagnostics.sh
     permissions: '0755'
     content: |
       #!/bin/bash
-      # Collect all diagnostic logs for troubleshooting cloud-init and system issues
-      set -e
-
-      DIAG_DIR="/tmp/diagnostics-$(date +%Y%m%d-%H%M%S)"
-      DIAG_TAR="$DIAG_DIR.tar.gz"
-
-      echo "=== Collecting diagnostics to $DIAG_DIR ==="
-      mkdir -p "$DIAG_DIR"
-
-      # Cloud-init logs
-      echo "Collecting cloud-init logs..."
-      cp /var/log/cloud-init.log "$DIAG_DIR/" 2>/dev/null || true
-      cp /var/log/cloud-init-output.log "$DIAG_DIR/" 2>/dev/null || true
-      cloud-init status --long > "$DIAG_DIR/cloud-init-status.txt" 2>&1 || true
-      cloud-init analyze show > "$DIAG_DIR/cloud-init-analyze.txt" 2>&1 || true
-      cloud-init analyze blame > "$DIAG_DIR/cloud-init-blame.txt" 2>&1 || true
-
-      # System logs
-      echo "Collecting system logs..."
-      journalctl -b --no-pager > "$DIAG_DIR/journalctl-boot.log" 2>&1 || true
-      journalctl -u cloud-init --no-pager > "$DIAG_DIR/journalctl-cloud-init.log" 2>&1 || true
-      journalctl -u cloud-final --no-pager > "$DIAG_DIR/journalctl-cloud-final.log" 2>&1 || true
-      dmesg > "$DIAG_DIR/dmesg.log" 2>&1 || true
-
-      # Custom application logs
-      echo "Collecting application logs..."
-      cp /var/log/volume-expand.log "$DIAG_DIR/" 2>/dev/null || true
-      cp /var/log/resilio-backup.log "$DIAG_DIR/" 2>/dev/null || true
-      journalctl -u resilio-sync --no-pager > "$DIAG_DIR/journalctl-resilio-sync.log" 2>&1 || true
-      journalctl -u volume-auto-expand --no-pager > "$DIAG_DIR/journalctl-volume-expand.log" 2>&1 || true
-
-      # Disk and mount information
-      echo "Collecting disk/mount info..."
-      lsblk -f > "$DIAG_DIR/lsblk.txt" 2>&1 || true
-      blkid > "$DIAG_DIR/blkid.txt" 2>&1 || true
-      df -h > "$DIAG_DIR/df.txt" 2>&1 || true
-      mount > "$DIAG_DIR/mount.txt" 2>&1 || true
-      cat /etc/fstab > "$DIAG_DIR/fstab.txt" 2>/dev/null || true
-      cat /etc/resilio-sync/folder-device-map.json > "$DIAG_DIR/folder-device-map.json" 2>/dev/null || true
-
-      # Service status
-      echo "Collecting service status..."
-      systemctl status resilio-sync > "$DIAG_DIR/status-resilio-sync.txt" 2>&1 || true
-      systemctl status cloud-init > "$DIAG_DIR/status-cloud-init.txt" 2>&1 || true
-      systemctl status cloud-final > "$DIAG_DIR/status-cloud-final.txt" 2>&1 || true
-      systemctl status volume-auto-expand > "$DIAG_DIR/status-volume-expand.txt" 2>&1 || true
-      systemctl list-units --failed > "$DIAG_DIR/failed-units.txt" 2>&1 || true
-
-      # Configuration files (sanitized)
-      echo "Collecting configuration..."
-      cat /etc/resilio-sync/config.json | jq 'del(.shared_folders[].secret)' > "$DIAG_DIR/resilio-config-sanitized.json" 2>/dev/null || true
-
-      # System info
-      echo "Collecting system info..."
-      uname -a > "$DIAG_DIR/uname.txt" 2>&1 || true
-      hostname -f > "$DIAG_DIR/hostname.txt" 2>&1 || true
-      cat /etc/os-release > "$DIAG_DIR/os-release.txt" 2>/dev/null || true
-      free -h > "$DIAG_DIR/memory.txt" 2>&1 || true
-
-      # Create tarball
-      echo "Creating tarball..."
-      tar -czf "$DIAG_TAR" -C /tmp "$(basename $DIAG_DIR)"
-      rm -rf "$DIAG_DIR"
-
-      echo ""
-      echo "=== Diagnostics collected ==="
-      echo "File: $DIAG_TAR"
-      echo "Size: $(du -h $DIAG_TAR | cut -f1)"
-      echo ""
-      echo "To download via SSH:"
-      echo "  scp -J ac-user@<jumpbox> ac-user@$(hostname -f):$DIAG_TAR ."
-      echo ""
-      echo "Or view directly:"
-      echo "  tar -tzf $DIAG_TAR"
+      # Placeholder - full version transferred via Terraform file provisioner
+      echo "Diagnostics script not yet provisioned"
+      exit 1
 
   - path: /etc/nftables.conf
     permissions: '0644'
@@ -738,6 +540,11 @@ runcmd:
   # Stop services
   - systemctl stop resilio-sync
 
+  # Create SSL directory and set permissions
+  - mkdir -p /etc/resilio-sync/ssl
+  - chown root:rslsync /etc/resilio-sync/ssl
+  - chmod 750 /etc/resilio-sync/ssl
+
   # Set ownership on all Resilio Sync mount points
   - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
 
@@ -769,9 +576,9 @@ runcmd:
       done
     fi
 
-    # Generate config.json from template + volume-based folders
+    # Generate config.json from template + volume-based folders (formatted with jq)
     FOLDERS=$(cat "$FOLDERS_FILE")
-    sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl > /etc/resilio-sync/config.json
+    sed "s|FOLDERS_PLACEHOLDER|$FOLDERS|" /etc/resilio-sync/config.json.tpl | jq . > /etc/resilio-sync/config.json
     chown rslsync:rslsync /etc/resilio-sync/config.json
     echo ">>> Resilio config generated"
 
@@ -805,13 +612,60 @@ runcmd:
   - /usr/local/bin/volume-auto-expand.sh  # Run once now in case volume was pre-expanded
 
   - systemctl enable --now resilio-sync
-  # Only enable backup cron if this region is in backup_regions
+
+  # Configure backup based on mode (scheduled, realtime, or hybrid)
   - |
-    if [ "${enable_backup}" = "true" ] && [ "${object_storage_access_key}" != "CHANGEME" ]; then
-      echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
-      echo ">>> Backup enabled on this region"
+    CONFIG_FILE="/etc/resilio-sync/backup-config.json"
+    BACKUP_ENABLED="${enable_backup}"
+    ACCESS_KEY="${backup_access_key}"
+
+    # Check if backup is enabled and configured
+    if [ "$BACKUP_ENABLED" != "true" ] || [ -z "$ACCESS_KEY" ] || [ "$ACCESS_KEY" = "CHANGEME" ]; then
+      echo ">>> Backup disabled on this region (enable_backup=$BACKUP_ENABLED)"
+      exit 0
+    fi
+
+    # Read backup mode from config
+    if [ -f "$CONFIG_FILE" ]; then
+      BACKUP_MODE=$(jq -r '.mode // "scheduled"' "$CONFIG_FILE")
+      BACKUP_SCHEDULE=$(jq -r '.schedule // "0 2 * * *"' "$CONFIG_FILE")
     else
-      echo ">>> Backup disabled on this region (enable_backup=${enable_backup})"
+      BACKUP_MODE="scheduled"
+      BACKUP_SCHEDULE="0 2 * * *"
+    fi
+
+    echo ">>> Backup enabled: mode=$BACKUP_MODE, schedule=$BACKUP_SCHEDULE"
+
+    case "$BACKUP_MODE" in
+      scheduled)
+        # Traditional cron-based backup
+        echo "$BACKUP_SCHEDULE /usr/local/bin/resilio-backup.sh" | crontab -
+        echo ">>> Scheduled backup configured: $BACKUP_SCHEDULE"
+        ;;
+
+      realtime)
+        # Realtime inotify-based backup
+        systemctl enable --now resilio-backup-watch.service
+        echo ">>> Realtime backup watcher enabled"
+        ;;
+
+      hybrid)
+        # Both scheduled and realtime
+        echo "$BACKUP_SCHEDULE /usr/local/bin/resilio-backup.sh" | crontab -
+        systemctl enable --now resilio-backup-watch.service
+        echo ">>> Hybrid backup configured: scheduled + realtime"
+        ;;
+
+      *)
+        echo ">>> Unknown backup mode: $BACKUP_MODE, defaulting to scheduled"
+        echo "0 2 * * * /usr/local/bin/resilio-backup.sh" | crontab -
+        ;;
+    esac
+
+    # Run initial backup if this is a fresh install
+    if [ ! -f "/var/log/resilio-backup.log" ]; then
+      echo ">>> Running initial backup in background..."
+      nohup /usr/local/bin/resilio-backup.sh &>/dev/null &
     fi
 
   # Load audit rules

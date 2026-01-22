@@ -20,6 +20,11 @@ variable "project_name" {
   type        = string
 }
 
+variable "suffix" {
+  description = "Global suffix shared across all VMs (from random_id.global_suffix)"
+  type        = string
+}
+
 variable "firewall_id" {
   description = "ID of the firewall to attach to the jumpbox"
   type        = string
