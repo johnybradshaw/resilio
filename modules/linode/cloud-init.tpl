@@ -267,19 +267,17 @@ write_files:
     permissions: '0644'
     content: "${resilio_license_key}"
   # SSL Certificate from Let's Encrypt (for HTTPS web UI)
+  # Note: ownership set later in runcmd after resilio-sync package is installed
   - path: /etc/resilio-sync/ssl/cert.pem
     permissions: '0644'
-    owner: root:rslsync
     content: |
       ${replace(trimspace(ssl_certificate), "\n", "\n      ")}
   - path: /etc/resilio-sync/ssl/privkey.pem
     permissions: '0640'
-    owner: root:rslsync
     content: |
       ${replace(trimspace(ssl_private_key), "\n", "\n      ")}
   - path: /etc/resilio-sync/ssl/chain.pem
     permissions: '0644'
-    owner: root:rslsync
     content: |
       ${replace(trimspace(ssl_issuer_cert), "\n", "\n      ")}
   # Default folders config - only used if no config exists on volume
@@ -669,13 +667,16 @@ runcmd:
   # Stop services
   - systemctl stop resilio-sync
 
-  # Create SSL directory and set permissions
+  # Set ownership on all Resilio Sync mount points and config
+  - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
+
+  # Set proper ownership on SSL directory and certificates (must be root:rslsync)
   - mkdir -p /etc/resilio-sync/ssl
   - chown root:rslsync /etc/resilio-sync/ssl
+  - chown root:rslsync /etc/resilio-sync/ssl/*.pem
   - chmod 750 /etc/resilio-sync/ssl
-
-  # Set ownership on all Resilio Sync mount points
-  - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
+  - chmod 644 /etc/resilio-sync/ssl/cert.pem /etc/resilio-sync/ssl/chain.pem
+  - chmod 640 /etc/resilio-sync/ssl/privkey.pem
 
   # Initialize folder config from base mount (preserves existing config across instance recreation)
   - |
