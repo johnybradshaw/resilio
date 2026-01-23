@@ -55,10 +55,10 @@ output "dns_nameservers" {
 }
 
 output "ssh_connection_strings" {
-  description = "SSH connection strings to resilio instances via jumpbox (uses ac-user with SSH key authentication)"
+  description = "SSH connection strings to resilio instances via jumpbox (uses cloud_user with SSH key authentication)"
   value = {
     for region, instance in module.linode_instances : region =>
-    "ssh -J ac-user@${module.jumpbox.ipv4_address} ac-user@${tolist(instance.ipv4_address)[0]}"
+    "ssh -J ${var.cloud_user}@${module.jumpbox.ipv4_address} ${var.cloud_user}@${tolist(instance.ipv4_address)[0]}"
   }
 }
 
@@ -125,7 +125,7 @@ output "backup_rehydrate_command" {
 
 # VM Credentials
 output "vm_credentials" {
-  description = "Credentials for VM access (root, ac-user) and Resilio web UI per region"
+  description = "Credentials for VM access (root, cloud_user) and Resilio web UI per region"
   sensitive   = true
   value = {
     for region, instance in module.linode_instances : region => {

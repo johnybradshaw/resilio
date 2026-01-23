@@ -30,6 +30,7 @@ resource "linode_instance" "jumpbox" {
   metadata {
     user_data = base64gzip(templatefile("${path.module}/cloud-init.tpl", {
       ssh_public_key = var.ssh_public_key
+      cloud_user     = var.cloud_user
     }))
   }
 }

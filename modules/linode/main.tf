@@ -115,12 +115,16 @@ resource "linode_instance" "resilio" {
       # User and webUI passwords
       user_password  = random_password.passwords["user_password"].result
       webui_password = random_password.passwords["webui_password"].result
+      # Cloud user for SSH access
+      cloud_user = var.cloud_user
     }))
   }
 
   lifecycle {
-    ignore_changes        = [metadata]
-    create_before_destroy = true
+    # Note: create_before_destroy removed because Linode requires unique labels,
+    # so new instance can't be created while old one exists with same label
+    # This means instances will be destroyed THEN created when recreated.
+    # Volumes are protected with prevent_destroy = true and will survive recreation.
   }
 }
 
@@ -213,12 +217,12 @@ resource "null_resource" "provision_scripts" {
 
   connection {
     type        = "ssh"
-    user        = "ac-user"
+    user        = var.cloud_user
     private_key = var.ssh_private_key
     host        = tolist(linode_instance.resilio.ipv4)[0]
 
     bastion_host        = var.jumpbox_ip
-    bastion_user        = "ac-user"
+    bastion_user        = var.cloud_user
     bastion_private_key = var.ssh_private_key
   }
 

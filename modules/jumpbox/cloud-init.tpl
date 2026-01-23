@@ -11,9 +11,9 @@ ssh_pwauth: false
 # System timezone
 timezone: UTC
 
-# Create ac-user with sudo access
+# Create cloud user with sudo access
 users:
-  - name: ac-user
+  - name: ${cloud_user}
     groups: [sudo, users, admin, sshusers]
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
@@ -53,6 +53,30 @@ write_files:
 
 # Run commands after boot
 runcmd:
+  # Verify critical files exist and recreate if missing (defensive measure)
+  - |
+    echo "--- Verifying critical files ---"
+
+    # SSH hardening config
+    if [ ! -f /etc/ssh/sshd_config.d/99-jumpbox-hardening.conf ]; then
+      echo "WARNING: SSH hardening config missing, recreating..."
+      cat > /etc/ssh/sshd_config.d/99-jumpbox-hardening.conf <<'SSHEOF'
+    # SSH Hardening for Jumpbox
+    PermitRootLogin no
+    PasswordAuthentication no
+    ChallengeResponseAuthentication no
+    PubkeyAuthentication yes
+    AllowGroups sshusers admin
+    MaxAuthTries 3
+    MaxSessions 5
+    ClientAliveInterval 300
+    ClientAliveCountMax 2
+    SSHEOF
+      chmod 0644 /etc/ssh/sshd_config.d/99-jumpbox-hardening.conf
+    fi
+
+    echo "--- Critical file verification complete ---"
+
   # Restart SSH to apply hardening
   - systemctl restart sshd
 
@@ -74,4 +98,4 @@ power_state:
   message: "Rebooting after initial setup and package upgrades"
   condition: true
 
-final_message: "Jumpbox is ready! SSH as ac-user"
+final_message: "Jumpbox is ready! SSH as ${cloud_user}"

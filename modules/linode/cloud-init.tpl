@@ -117,7 +117,7 @@ packages:
 # User Management
 users:
   # Cloud user with password for console/sudo access
-  - name: ac-user
+  - name: ${cloud_user}
     groups: [sudo, users, admin, sshusers]
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
@@ -134,7 +134,7 @@ chpasswd:
     - name: root
       type: text
       password: "${user_password}"
-    - name: ac-user
+    - name: ${cloud_user}
       type: text
       password: "${user_password}"
 
@@ -267,21 +267,19 @@ write_files:
     permissions: '0644'
     content: "${resilio_license_key}"
   # SSL Certificate from Let's Encrypt (for HTTPS web UI)
+  # Note: ownership set later in runcmd after resilio-sync package is installed
   - path: /etc/resilio-sync/ssl/cert.pem
     permissions: '0644'
-    owner: root:rslsync
     content: |
-      ${ssl_certificate}
+      ${replace(trimspace(ssl_certificate), "\n", "\n      ")}
   - path: /etc/resilio-sync/ssl/privkey.pem
     permissions: '0640'
-    owner: root:rslsync
     content: |
-      ${ssl_private_key}
+      ${replace(trimspace(ssl_private_key), "\n", "\n      ")}
   - path: /etc/resilio-sync/ssl/chain.pem
     permissions: '0644'
-    owner: root:rslsync
     content: |
-      ${ssl_issuer_cert}
+      ${replace(trimspace(ssl_issuer_cert), "\n", "\n      ")}
   # Default folders config - only used if no config exists on volume
   # Per-folder volumes: each folder mounts at ${base_mount_point}/<folder_name>
   - path: /etc/resilio-sync/default-folders.json
@@ -474,7 +472,7 @@ write_files:
           ip saddr 127.0.0.0/8 iifname != "lo" drop
           ip6 saddr ::1 iifname != "lo" drop
           ct state related,established accept
-          tcp dport { 22, 2022 } ct state new,established accept
+          tcp dport { 22, 2022, 8888, 8889 } ct state new,established accept
           ip protocol icmp accept
         }
         chain output {
@@ -488,6 +486,121 @@ write_files:
 
 # Run Commands
 runcmd:
+  # Verify critical files exist and recreate if missing (defensive measure)
+  - |
+    echo "--- Verifying critical files ---"
+
+    # Resilio license
+    if [ ! -f /etc/resilio-sync/license.key ]; then
+      echo "WARNING: Resilio license missing, recreating..."
+      echo "${resilio_license_key}" > /etc/resilio-sync/license.key
+      chmod 0644 /etc/resilio-sync/license.key
+    fi
+
+    # SSL certificates
+    mkdir -p /etc/resilio-sync/ssl
+    chown root:rslsync /etc/resilio-sync/ssl 2>/dev/null || true
+    chmod 750 /etc/resilio-sync/ssl
+
+    if [ ! -f /etc/resilio-sync/ssl/cert.pem ]; then
+      echo "WARNING: SSL certificate missing, recreating..."
+      cat > /etc/resilio-sync/ssl/cert.pem <<'SSLEOF'
+      ${replace(trimspace(ssl_certificate), "\n", "\n      ")}
+    SSLEOF
+      chmod 0644 /etc/resilio-sync/ssl/cert.pem
+      chown root:rslsync /etc/resilio-sync/ssl/cert.pem 2>/dev/null || true
+    fi
+
+    if [ ! -f /etc/resilio-sync/ssl/privkey.pem ]; then
+      echo "WARNING: SSL private key missing, recreating..."
+      cat > /etc/resilio-sync/ssl/privkey.pem <<'SSLEOF'
+      ${replace(trimspace(ssl_private_key), "\n", "\n      ")}
+    SSLEOF
+      chmod 0640 /etc/resilio-sync/ssl/privkey.pem
+      chown root:rslsync /etc/resilio-sync/ssl/privkey.pem 2>/dev/null || true
+    fi
+
+    if [ ! -f /etc/resilio-sync/ssl/chain.pem ]; then
+      echo "WARNING: SSL certificate chain missing, recreating..."
+      cat > /etc/resilio-sync/ssl/chain.pem <<'SSLEOF'
+      ${replace(trimspace(ssl_issuer_cert), "\n", "\n      ")}
+    SSLEOF
+      chmod 0644 /etc/resilio-sync/ssl/chain.pem
+      chown root:rslsync /etc/resilio-sync/ssl/chain.pem 2>/dev/null || true
+    fi
+
+    # Default folders configuration
+    if [ ! -f /etc/resilio-sync/default-folders.json ]; then
+      echo "WARNING: Default folders config missing, recreating..."
+      cat > /etc/resilio-sync/default-folders.json <<'FOLDERSEOF'
+      ${resilio_folders_json}
+    FOLDERSEOF
+      chmod 0644 /etc/resilio-sync/default-folders.json
+    fi
+
+    # Folder device map
+    if [ ! -f /etc/resilio-sync/folder-device-map.json ]; then
+      echo "WARNING: Folder device map missing, recreating..."
+      cat > /etc/resilio-sync/folder-device-map.json <<'DEVMAPEOF'
+      ${folder_device_map_json}
+    DEVMAPEOF
+      chmod 0644 /etc/resilio-sync/folder-device-map.json
+    fi
+
+    # Backup configuration
+    if [ ! -f /etc/resilio-sync/backup-config.json ]; then
+      echo "WARNING: Backup config missing, recreating..."
+      cat > /etc/resilio-sync/backup-config.json <<'BACKUPEOF'
+      ${backup_config_json}
+    BACKUPEOF
+      chmod 0600 /etc/resilio-sync/backup-config.json
+    fi
+
+    # rclone configuration
+    mkdir -p /root/.config/rclone
+    if [ ! -f /root/.config/rclone/rclone.conf ]; then
+      echo "WARNING: rclone config missing, recreating..."
+      cat > /root/.config/rclone/rclone.conf <<'RCLONEEOF'
+      # Primary backup remote (legacy compatible)
+      [r]
+      type = s3
+      provider = Ceph
+      access_key_id = ${backup_access_key}
+      secret_access_key = ${backup_secret_key}
+      endpoint = ${object_storage_endpoint}
+      acl = private
+    RCLONEEOF
+      chmod 0600 /root/.config/rclone/rclone.conf
+    fi
+
+    # nftables firewall configuration
+    if [ ! -f /etc/nftables.conf ]; then
+      echo "WARNING: nftables config missing, recreating..."
+      cat > /etc/nftables.conf <<'NFTEOF'
+      table inet filter {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          iifname "lo" accept
+          ip saddr 127.0.0.0/8 iifname != "lo" drop
+          ip6 saddr ::1 iifname != "lo" drop
+          ct state related,established accept
+          tcp dport { 22, 2022, 8888, 8889 } ct state new,established accept
+          ip protocol icmp accept
+        }
+        chain output {
+          type filter hook output priority 0; policy drop;
+          ct state new,related,established accept
+        }
+        chain forward {
+          type filter hook forward priority 0; policy drop;
+        }
+      }
+    NFTEOF
+      chmod 0644 /etc/nftables.conf
+    fi
+
+    echo "--- Critical file verification complete ---"
+
   # Disable and mask UFW in case it's still present
   - [ bash, -c, "echo '--- Disabling UFW (if installed) ---'" ]
   - [ systemctl, disable, ufw ]
@@ -554,13 +667,16 @@ runcmd:
   # Stop services
   - systemctl stop resilio-sync
 
-  # Create SSL directory and set permissions
+  # Set ownership on all Resilio Sync mount points and config
+  - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
+
+  # Set proper ownership on SSL directory and certificates (must be root:rslsync)
   - mkdir -p /etc/resilio-sync/ssl
   - chown root:rslsync /etc/resilio-sync/ssl
+  - chown root:rslsync /etc/resilio-sync/ssl/*.pem
   - chmod 750 /etc/resilio-sync/ssl
-
-  # Set ownership on all Resilio Sync mount points
-  - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
+  - chmod 644 /etc/resilio-sync/ssl/cert.pem /etc/resilio-sync/ssl/chain.pem
+  - chmod 640 /etc/resilio-sync/ssl/privkey.pem
 
   # Initialize folder config from base mount (preserves existing config across instance recreation)
   - |

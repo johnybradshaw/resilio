@@ -204,3 +204,9 @@ variable "provision_scripts" {
   type        = bool
   default     = false
 }
+
+variable "cloud_user" {
+  description = "Non-root user for SSH access and management"
+  type        = string
+  default     = "ac-user"
+}

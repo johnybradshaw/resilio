@@ -65,10 +65,20 @@ locals {
 # ACME / LET'S ENCRYPT SSL CERTIFICATES
 # =============================================================================
 
+# Version trigger for ACME account key rotation
+# Increment the input value to force generation of a new ACME account key
+resource "terraform_data" "acme_key_version" {
+  input = "2" # Bumped: previous account was deactivated
+}
+
 # ACME provider registration for Let's Encrypt
 resource "tls_private_key" "acme_account" {
   algorithm = "RSA"
   rsa_bits  = 4096
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.acme_key_version]
+  }
 }
 
 resource "acme_registration" "resilio" {
@@ -77,16 +87,15 @@ resource "acme_registration" "resilio" {
 }
 
 # Let's Encrypt wildcard certificate for all Resilio instances
+# Note: Wildcard covers all subdomains, so per-region SANs are not needed
 resource "acme_certificate" "resilio" {
   account_key_pem = acme_registration.resilio.account_key_pem
   common_name     = var.dns_include_project_name ? "${var.project_name}.${var.tld}" : var.tld
-  subject_alternative_names = var.dns_include_project_name ? concat(
-    ["*.${var.project_name}.${var.tld}"],
-    [for region in var.regions : "${region}.${var.project_name}.${var.tld}"]
-  ) : concat(
-    ["*.${var.tld}"],
-    [for region in var.regions : "${region}.${var.tld}"]
-  )
+  subject_alternative_names = var.dns_include_project_name ? [
+    "*.${var.project_name}.${var.tld}"
+    ] : [
+    "*.${var.tld}"
+  ]
 
   dns_challenge {
     provider = "linode"
@@ -225,6 +234,7 @@ module "jumpbox" {
   suffix         = random_id.global_suffix.hex # Use global suffix
   firewall_id    = module.jumpbox_firewall.firewall_id
   tags           = local.tags
+  cloud_user     = var.cloud_user
 }
 
 module "linode_instances" {
@@ -283,7 +293,8 @@ module "linode_instances" {
   object_storage_bucket     = local.backup_primary_bucket
   enable_backup             = local.backup_config.enabled && contains(local.effective_backup_source_regions, each.key)
 
-  tags = local.tags # Concat tags and tld
+  tags       = local.tags # Concat tags and tld
+  cloud_user = var.cloud_user
 }
 
 module "dns" {
@@ -376,6 +387,15 @@ resource "terraform_data" "update_resilio_firewall" {
       }
     },
     {
+      "label": "external-to-resilio-webui",
+      "action": "ACCEPT",
+      "protocol": "TCP",
+      "ports": "8888,8889",
+      "addresses": {
+        "ipv4": ["${var.allowed_webui_cidr != null ? var.allowed_webui_cidr : local.current_ip_cidr}"]
+      }
+    },
+    {
       "label": "jumpbox-to-resilio-ping",
       "action": "ACCEPT",
       "protocol": "ICMP",
@@ -431,6 +451,7 @@ RULES_EOF
         echo "Applied rules:"
         echo "   • Allow SSH (ports 22, 2022) from jumpbox: $${JUMPBOX_IP}"
         echo "   • Allow HTTPS Web UI (port 8888) from jumpbox: $${JUMPBOX_IP}"
+        echo "   • Allow HTTPS Web UI (ports 8888, 8889) from external: ${var.allowed_webui_cidr != null ? var.allowed_webui_cidr : local.current_ip_cidr}"
         echo "   • Allow ICMP from jumpbox: $${JUMPBOX_IP}"
         echo "   • Allow all TCP traffic between Resilio instances"
         echo "   • Allow all UDP traffic between Resilio instances"
