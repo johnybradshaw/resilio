@@ -271,17 +271,17 @@ write_files:
     permissions: '0644'
     owner: root:rslsync
     content: |
-${indent(6, ssl_certificate)}
+      ${replace(trimspace(ssl_certificate), "\n", "\n      ")}
   - path: /etc/resilio-sync/ssl/privkey.pem
     permissions: '0640'
     owner: root:rslsync
     content: |
-${indent(6, ssl_private_key)}
+      ${replace(trimspace(ssl_private_key), "\n", "\n      ")}
   - path: /etc/resilio-sync/ssl/chain.pem
     permissions: '0644'
     owner: root:rslsync
     content: |
-${indent(6, ssl_issuer_cert)}
+      ${replace(trimspace(ssl_issuer_cert), "\n", "\n      ")}
   # Default folders config - only used if no config exists on volume
   # Per-folder volumes: each folder mounts at ${base_mount_point}/<folder_name>
   - path: /etc/resilio-sync/default-folders.json
