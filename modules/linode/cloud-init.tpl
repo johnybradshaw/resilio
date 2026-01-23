@@ -474,7 +474,7 @@ write_files:
           ip saddr 127.0.0.0/8 iifname != "lo" drop
           ip6 saddr ::1 iifname != "lo" drop
           ct state related,established accept
-          tcp dport { 22, 2022 } ct state new,established accept
+          tcp dport { 22, 2022, 8888, 8889 } ct state new,established accept
           ip protocol icmp accept
         }
         chain output {
@@ -586,7 +586,7 @@ runcmd:
           ip saddr 127.0.0.0/8 iifname != "lo" drop
           ip6 saddr ::1 iifname != "lo" drop
           ct state related,established accept
-          tcp dport { 22, 2022 } ct state new,established accept
+          tcp dport { 22, 2022, 8888, 8889 } ct state new,established accept
           ip protocol icmp accept
         }
         chain output {
