@@ -35,3 +35,9 @@ variable "tags" {
   type        = list(string)
   default     = ["deployment: terraform", "app: resilio"]
 }
+
+variable "cloud_user" {
+  description = "Non-root user for SSH access and management"
+  type        = string
+  default     = "ac-user"
+}

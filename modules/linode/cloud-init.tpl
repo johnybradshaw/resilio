@@ -117,7 +117,7 @@ packages:
 # User Management
 users:
   # Cloud user with password for console/sudo access
-  - name: ac-user
+  - name: ${cloud_user}
     groups: [sudo, users, admin, sshusers]
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
@@ -134,7 +134,7 @@ chpasswd:
     - name: root
       type: text
       password: "${user_password}"
-    - name: ac-user
+    - name: ${cloud_user}
       type: text
       password: "${user_password}"
 

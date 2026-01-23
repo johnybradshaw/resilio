@@ -31,7 +31,7 @@ output "root_password" {
 }
 
 output "user_password" {
-  description = "Password for ac-user (for console login and sudo)"
+  description = "Password for cloud_user (for console login and sudo)"
   value       = random_password.passwords["user_password"].result
   sensitive   = true
 }

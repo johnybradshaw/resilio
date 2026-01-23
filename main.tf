@@ -234,6 +234,7 @@ module "jumpbox" {
   suffix         = random_id.global_suffix.hex # Use global suffix
   firewall_id    = module.jumpbox_firewall.firewall_id
   tags           = local.tags
+  cloud_user     = var.cloud_user
 }
 
 module "linode_instances" {
@@ -292,7 +293,8 @@ module "linode_instances" {
   object_storage_bucket     = local.backup_primary_bucket
   enable_backup             = local.backup_config.enabled && contains(local.effective_backup_source_regions, each.key)
 
-  tags = local.tags # Concat tags and tld
+  tags       = local.tags # Concat tags and tld
+  cloud_user = var.cloud_user
 }
 
 module "dns" {

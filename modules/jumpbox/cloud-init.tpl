@@ -11,9 +11,9 @@ ssh_pwauth: false
 # System timezone
 timezone: UTC
 
-# Create ac-user with sudo access
+# Create cloud user with sudo access
 users:
-  - name: ac-user
+  - name: ${cloud_user}
     groups: [sudo, users, admin, sshusers]
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
@@ -74,4 +74,4 @@ power_state:
   message: "Rebooting after initial setup and package upgrades"
   condition: true
 
-final_message: "Jumpbox is ready! SSH as ac-user"
+final_message: "Jumpbox is ready! SSH as ${cloud_user}"
