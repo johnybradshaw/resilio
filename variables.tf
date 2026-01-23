@@ -146,6 +146,17 @@ variable "allowed_ssh_cidr" {
   }
 }
 
+variable "allowed_webui_cidr" {
+  description = "CIDR block allowed for HTTPS web UI access to Resilio instances. Defaults to auto-detected current IP. Set to '0.0.0.0/0' to allow all (NOT recommended for production)."
+  type        = string
+  default     = null # Will be auto-detected if not specified
+
+  validation {
+    condition     = var.allowed_webui_cidr == null || can(cidrhost(var.allowed_webui_cidr, 0))
+    error_message = "Must be a valid CIDR block (e.g., '1.2.3.4/32' or '0.0.0.0/0')."
+  }
+}
+
 variable "jumpbox_region" {
   description = "Linode region for the jumpbox (bastion host)"
   type        = string

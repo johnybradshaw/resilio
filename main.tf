@@ -93,7 +93,7 @@ resource "acme_certificate" "resilio" {
   common_name     = var.dns_include_project_name ? "${var.project_name}.${var.tld}" : var.tld
   subject_alternative_names = var.dns_include_project_name ? [
     "*.${var.project_name}.${var.tld}"
-  ] : [
+    ] : [
     "*.${var.tld}"
   ]
 
@@ -387,6 +387,15 @@ resource "terraform_data" "update_resilio_firewall" {
       }
     },
     {
+      "label": "external-to-resilio-webui",
+      "action": "ACCEPT",
+      "protocol": "TCP",
+      "ports": "8888,8889",
+      "addresses": {
+        "ipv4": ["${var.allowed_webui_cidr != null ? var.allowed_webui_cidr : local.current_ip_cidr}"]
+      }
+    },
+    {
       "label": "jumpbox-to-resilio-ping",
       "action": "ACCEPT",
       "protocol": "ICMP",
@@ -442,6 +451,7 @@ RULES_EOF
         echo "Applied rules:"
         echo "   • Allow SSH (ports 22, 2022) from jumpbox: $${JUMPBOX_IP}"
         echo "   • Allow HTTPS Web UI (port 8888) from jumpbox: $${JUMPBOX_IP}"
+        echo "   • Allow HTTPS Web UI (ports 8888, 8889) from external: ${var.allowed_webui_cidr != null ? var.allowed_webui_cidr : local.current_ip_cidr}"
         echo "   • Allow ICMP from jumpbox: $${JUMPBOX_IP}"
         echo "   • Allow all TCP traffic between Resilio instances"
         echo "   • Allow all UDP traffic between Resilio instances"
