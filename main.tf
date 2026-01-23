@@ -69,6 +69,12 @@ locals {
 resource "tls_private_key" "acme_account" {
   algorithm = "RSA"
   rsa_bits  = 4096
+
+  # Keepers force key regeneration when bumped
+  # Increment version if ACME account becomes deactivated or unusable
+  keepers = {
+    version = "2" # Bumped: previous account was deactivated
+  }
 }
 
 resource "acme_registration" "resilio" {

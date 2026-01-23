@@ -32,12 +32,12 @@ output "root_password" {
 
 output "user_password" {
   description = "Password for ac-user (for console login and sudo)"
-  value       = random_password.user_password.result
+  value       = random_password.passwords["user_password"].result
   sensitive   = true
 }
 
 output "webui_password" {
   description = "Password for Resilio Sync web UI (username: admin)"
-  value       = random_password.webui_password.result
+  value       = random_password.passwords["webui_password"].result
   sensitive   = true
 }
