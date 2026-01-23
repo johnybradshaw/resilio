@@ -121,9 +121,10 @@ resource "linode_instance" "resilio" {
   }
 
   lifecycle {
-    ignore_changes = [metadata]
     # Note: create_before_destroy removed because Linode requires unique labels,
     # so new instance can't be created while old one exists with same label
+    # This means instances will be destroyed THEN created when recreated.
+    # Volumes are protected with prevent_destroy = true and will survive recreation.
   }
 }
 
