@@ -53,6 +53,30 @@ write_files:
 
 # Run commands after boot
 runcmd:
+  # Verify critical files exist and recreate if missing (defensive measure)
+  - |
+    echo "--- Verifying critical files ---"
+
+    # SSH hardening config
+    if [ ! -f /etc/ssh/sshd_config.d/99-jumpbox-hardening.conf ]; then
+      echo "WARNING: SSH hardening config missing, recreating..."
+      cat > /etc/ssh/sshd_config.d/99-jumpbox-hardening.conf <<'SSHEOF'
+    # SSH Hardening for Jumpbox
+    PermitRootLogin no
+    PasswordAuthentication no
+    ChallengeResponseAuthentication no
+    PubkeyAuthentication yes
+    AllowGroups sshusers admin
+    MaxAuthTries 3
+    MaxSessions 5
+    ClientAliveInterval 300
+    ClientAliveCountMax 2
+    SSHEOF
+      chmod 0644 /etc/ssh/sshd_config.d/99-jumpbox-hardening.conf
+    fi
+
+    echo "--- Critical file verification complete ---"
+
   # Restart SSH to apply hardening
   - systemctl restart sshd
 
