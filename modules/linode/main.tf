@@ -121,8 +121,9 @@ resource "linode_instance" "resilio" {
   }
 
   lifecycle {
-    ignore_changes        = [metadata]
-    create_before_destroy = true
+    ignore_changes = [metadata]
+    # Note: create_before_destroy removed because Linode requires unique labels,
+    # so new instance can't be created while old one exists with same label
   }
 }
 
