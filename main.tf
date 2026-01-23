@@ -65,15 +65,19 @@ locals {
 # ACME / LET'S ENCRYPT SSL CERTIFICATES
 # =============================================================================
 
+# Version trigger for ACME account key rotation
+# Increment the input value to force generation of a new ACME account key
+resource "terraform_data" "acme_key_version" {
+  input = "2" # Bumped: previous account was deactivated
+}
+
 # ACME provider registration for Let's Encrypt
 resource "tls_private_key" "acme_account" {
   algorithm = "RSA"
   rsa_bits  = 4096
 
-  # Keepers force key regeneration when bumped
-  # Increment version if ACME account becomes deactivated or unusable
-  keepers = {
-    version = "2" # Bumped: previous account was deactivated
+  lifecycle {
+    replace_triggered_by = [terraform_data.acme_key_version]
   }
 }
 
