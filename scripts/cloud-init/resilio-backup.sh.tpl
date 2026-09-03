@@ -100,7 +100,9 @@ if [ -z "$(rclone listremotes 2>/dev/null)" ]; then
   log "ERROR: no rclone remotes configured - cannot back up. Aborting."
   exit 1
 fi
-REMOTES=$(rclone listremotes 2>/dev/null | grep -E '^(r|backup-)')
+# `|| true`: with `set -e`, a non-matching grep returns 1 and would abort here,
+# before the explicit check below could log WHY nothing matched.
+REMOTES=$(rclone listremotes 2>/dev/null | grep -E '^(r|backup-)' || true)
 if [ -z "$REMOTES" ]; then
   log "ERROR: rclone has remotes but none match the expected backup naming. Aborting."
   exit 1
@@ -132,7 +134,11 @@ else
   FOLDERS="data|$BASE_MOUNT"
 fi
 
-echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
+# NOTE: fed by here-string, NOT `echo "$FOLDERS" | while`. A pipeline runs the
+# loop in a subshell, so every ERRORS increment inside it is discarded and the
+# parent sees 0 - which would write a success stamp after a totally failed run
+# and make the staleness check below report healthy. Do not reintroduce a pipe.
+while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
   [ -z "$FOLDER_NAME" ] && continue
 
   log "Backing up folder: $FOLDER_NAME from $MOUNT_POINT"
@@ -153,7 +159,7 @@ echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
       ERRORS=$((ERRORS + 1))
     fi
   done
-done
+done <<< "$FOLDERS"
 
 # Cleanup old versions (only if retention is set)
 if [ "$RETENTION_DAYS" -gt 0 ]; then
