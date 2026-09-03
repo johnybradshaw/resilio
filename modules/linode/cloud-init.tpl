@@ -743,8 +743,18 @@ runcmd:
 
   - systemctl enable --now resilio-sync
 
+
   # Configure backup based on mode (scheduled, realtime, or hybrid)
+  #
+  # SAFETY: this entire entry runs in a subshell "( ... )".
+  # cloud-init does NOT run each runcmd entry as its own script - cc_runcmd
+  # shellify()s the whole list into ONE /var/lib/cloud/instance/scripts/runcmd.
+  # A bare "exit" therefore aborts EVERY LATER ENTRY. That is exactly what used
+  # to happen: on any region with backups disabled, the guard below exited and
+  # silently skipped auditd, sshguard, AppArmor, AIDE, unattended-upgrades and
+  # the entire CIS usg fix pass. The subshell confines any exit to this block.
   - |
+    (
     CONFIG_FILE="/etc/resilio-sync/backup-config.json"
     BACKUP_ENABLED="${enable_backup}"
     ACCESS_KEY="${backup_access_key}"
@@ -797,6 +807,7 @@ runcmd:
       echo ">>> Running initial backup in background..."
       nohup /usr/local/bin/resilio-backup.sh &>/dev/null &
     fi
+    )
 
   # Load audit rules
   - [ bash, -c, "augenrules --load" ]
