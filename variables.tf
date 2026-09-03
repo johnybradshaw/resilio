@@ -180,31 +180,21 @@ variable "backup_enabled" {
 }
 
 variable "backup_storage_regions" {
-  description = "List of Linode Object Storage regions for backup destinations. Note: Object Storage uses different region IDs than compute (e.g., 'us-east-1' not 'us-east')."
+  description = "Compute region IDs in which to create backup Object Storage buckets (e.g. 'us-east', 'eu-central'). NOTE: use the COMPUTE region id, not the cluster/endpoint id. The API accepts 'us-east-1' on create but stores 'us-east', and because `region` is force-new that mismatch puts the bucket in a permanent replacement loop."
   type        = list(string)
-  default     = ["us-east-1"]
+  default     = ["us-east"]
 
   validation {
     condition = alltrue([
       for region in var.backup_storage_regions :
       contains([
-        "us-east-1",      # Newark, NJ
-        "us-southeast-1", # Atlanta, GA
-        "us-iad-1",       # Washington, DC
-        "us-ord-1",       # Chicago, IL
-        "us-sea-1",       # Seattle, WA
-        "eu-central-1",   # Frankfurt, Germany
-        "fr-par-1",       # Paris, France
-        "se-sto-1",       # Stockholm, Sweden
-        "ap-south-1",     # Singapore
-        "jp-osa-1",       # Osaka, Japan
-        "in-maa-1",       # Chennai, India
-        "id-cgk-1",       # Jakarta, Indonesia
-        "br-gru-1",       # São Paulo, Brazil
-        "au-mel-1",       # Melbourne, Australia
+        "ap-south", "au-mel", "br-gru", "de-fra-2", "es-mad", "eu-central",
+        "fr-par", "gb-lon", "id-cgk", "in-maa", "it-mil", "jp-osa", "jp-tyo-3",
+        "nl-ams", "se-sto", "sg-sin-2", "us-east", "us-iad", "us-iad-2",
+        "us-lax", "us-mia", "us-ord", "us-sea", "us-southeast",
       ], region)
     ])
-    error_message = "Invalid Object Storage region. Valid regions: us-east-1, us-southeast-1, us-iad-1, us-ord-1, us-sea-1, eu-central-1, fr-par-1, se-sto-1, ap-south-1, jp-osa-1, in-maa-1, id-cgk-1, br-gru-1, au-mel-1. Note: Object Storage regions differ from compute regions."
+    error_message = "Invalid Object Storage region. Use the COMPUTE region id (e.g. 'us-east', 'eu-central'), NOT the cluster id ('us-east-1'). List current regions with: linode-cli object-storage clusters-list"
   }
 }
 
