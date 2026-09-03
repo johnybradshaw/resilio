@@ -1,268 +1,232 @@
-# Terraform Backend Setup with Linode Object Storage
+# Terraform Backend Setup — Linode Object Storage
 
-This document explains how to configure Terraform to use Linode Object Storage as a remote backend with encryption, integrated with 1Password for secure credential management.
+Remote state for this project lives in a Linode Object Storage bucket using
+Terraform's S3-compatible backend, with credentials held in 1Password.
 
-## Overview
+## Why this shape
 
-The Terraform configuration supports using Linode Object Storage (S3-compatible) as a remote backend to store state files. This provides:
-
-- **Remote state storage**: Share state across team members
-- **State locking**: Prevent concurrent modifications
-- **Encryption**: Protect sensitive state data
-- **1Password integration**: Securely manage credentials
+| Concern | Decision |
+|---|---|
+| Public repository | **Partial backend.** `provider.tf` holds an empty `backend "s3" {}`; bucket, region and key live in `backend.tfvars`, which is gitignored. No infrastructure detail is committed. |
+| Credentials | Read from 1Password into environment variables at the start of a session. Never written to a file in the repo. |
+| State locking | `use_lockfile = true` (Terraform >= 1.10). Linode has no DynamoDB equivalent; S3-native locking works against Linode Object Storage. |
+| State recovery | Bucket versioning is enabled, so every prior state revision is retained. |
+| Bucket ownership | The state bucket is created **out of band** and is deliberately *not* a Terraform resource. A bucket managed by the state it holds would be destroyed mid-`destroy`, orphaning the state. |
 
 ## Prerequisites
 
-1. **Linode Object Storage**
-   - Create an Object Storage bucket in Linode Cloud Manager
-   - Generate Access Key and Secret Key
-   - Note your region (e.g., `us-east-1`, `eu-central-1`)
+- Terraform **>= 1.10**, which the root module now requires (`use_lockfile`).
+- [1Password CLI](https://developer.1password.com/docs/cli/get-started/), signed in.
+- `linode-cli`, authenticated against the target account.
 
-2. **1Password CLI**
-   - Install: https://developer.1password.com/docs/cli/get-started/
-   - Sign in: `op signin`
+## One-time setup
 
-3. **Terraform** >= 1.5.0
+### Step 1 — Create the bucket
 
-## Setup Instructions
-
-### Step 1: Create Linode Object Storage Bucket
-
-1. Log in to [Linode Cloud Manager](https://cloud.linode.com/)
-2. Navigate to **Object Storage**
-3. Click **Create Bucket**
-4. Choose a region and bucket name (e.g., `terraform-state-resilio`)
-5. Click **Create Bucket**
-
-### Step 2: Generate Access Keys
-
-1. In Object Storage, click **Access Keys**
-2. Click **Create Access Key**
-3. Label it (e.g., "Terraform Backend")
-4. Save the **Access Key** and **Secret Key** securely
-
-### Step 3: Store Credentials in 1Password
-
-#### Option A: Using 1Password App
-
-1. Create a new item in 1Password:
-   - **Title**: `linode-object-storage`
-   - **Vault**: `Infrastructure` (or your preferred vault)
-   - **Type**: API Credential or Password
-
-2. Add the following fields:
-   - `access_key_id`: Your Linode Object Storage access key
-   - `secret_access_key`: Your Linode Object Storage secret key
-
-3. (Optional) Create another item for encryption:
-   - **Title**: `terraform-state-encryption`
-   - **Vault**: `Infrastructure`
-   - Add field `encryption_key`: A 256-bit base64-encoded key
-
-#### Option B: Using 1Password CLI
+Pick a region from `linode-cli object-storage clusters-list`. A region that is
+*not* one of your deployment regions keeps state independent of the
+infrastructure it describes.
 
 ```bash
-# Store Object Storage credentials
+TOKEN=$(awk -F' *= *' '/^token/{print $2; exit}' ~/.config/linode-cli)
+BUCKET="terraform-state-$(openssl rand -hex 3)"   # unguessable, not committed
+
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"label\":\"${BUCKET}\",\"region\":\"fr-par\",\"acl\":\"private\",\"cors_enabled\":false}" \
+  https://api.linode.com/v4/object-storage/buckets
+```
+
+`linode-cli` has no bucket-create action in current versions; the API call above
+is the supported route.
+
+### Step 2 — Create a bucket-scoped access key
+
+Scope the key to the state bucket alone. A full-account Object Storage key in a
+Terraform session is a blast-radius problem for no benefit.
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"label\":\"terraform-state\",
+       \"regions\":[\"fr-par\"],
+       \"bucket_access\":[{\"region\":\"fr-par\",
+                           \"bucket_name\":\"${BUCKET}\",
+                           \"permissions\":\"read_write\"}]}" \
+  https://api.linode.com/v4/object-storage/keys > ~/.config/tfstate-key.json
+chmod 600 ~/.config/tfstate-key.json
+```
+
+Confirm the response shows `"limited": true`. If it shows `false`, the
+`bucket_access` block was rejected and you have an account-wide key — revoke it
+and retry.
+
+### Step 3 — Enable bucket versioning
+
+Versioning is what makes a corrupted or truncated state recoverable.
+
+```bash
+export AWS_ACCESS_KEY_ID=$(jq -r .access_key ~/.config/tfstate-key.json)
+export AWS_SECRET_ACCESS_KEY=$(jq -r .secret_key ~/.config/tfstate-key.json)
+
+aws s3api put-bucket-versioning \
+  --bucket "$BUCKET" \
+  --versioning-configuration Status=Enabled \
+  --endpoint-url https://fr-par-1.linodeobjects.com
+
+aws s3api get-bucket-versioning \
+  --bucket "$BUCKET" \
+  --endpoint-url https://fr-par-1.linodeobjects.com
+```
+
+### Step 4 — Store the credentials in 1Password
+
+Vault `secrets.resilio`, item `terraform-state-backend`:
+
+```bash
 op item create \
   --category="API Credential" \
-  --title="linode-object-storage" \
-  --vault="Infrastructure" \
-  access_key_id="YOUR_ACCESS_KEY" \
-  secret_access_key="YOUR_SECRET_KEY"
-
-# Generate and store encryption key
-ENCRYPTION_KEY=$(openssl rand -base64 32)
-op item create \
-  --category="Password" \
-  --title="terraform-state-encryption" \
-  --vault="Infrastructure" \
-  encryption_key="${ENCRYPTION_KEY}"
+  --title="terraform-state-backend" \
+  --vault="secrets.resilio" \
+  "access_key_id[password]=$(jq -r .access_key ~/.config/tfstate-key.json)" \
+  "secret_access_key[password]=$(jq -r .secret_key ~/.config/tfstate-key.json)" \
+  "bucket[text]=${BUCKET}" \
+  "region[text]=fr-par-1" \
+  "endpoint[text]=https://fr-par-1.linodeobjects.com"
 ```
 
-### Step 4: Configure Backend in provider.tf
-
-1. Open `provider.tf`
-2. Uncomment the `backend "s3"` block
-3. Update the configuration values:
-   - `bucket`: Your bucket name
-   - `key`: Path to state file (e.g., `resilio/terraform.tfstate`)
-   - `region`: Your Linode region
-   - `endpoint`: Your region's endpoint (e.g., `https://us-east-1.linodeobjects.com`)
-
-Example configuration:
-
-```hcl
-backend "s3" {
-  bucket = "terraform-state-resilio"
-  key    = "resilio/terraform.tfstate"
-  region = "us-east-1"
-
-  endpoint = "https://us-east-1.linodeobjects.com"
-
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_region_validation      = true
-  skip_requesting_account_id  = true
-
-  force_path_style = true
-
-  # Optional: Enable encryption
-  encrypt = true
-}
-```
-
-### Step 5: Load Credentials and Initialize
+Then remove the local copy. `rm -P` is macOS-only - on GNU/Linux it is not a
+valid flag, the command fails, and the access and secret keys are left on disk:
 
 ```bash
-# Load credentials from 1Password
-source scripts/setup-backend-credentials.sh
-
-# Initialize Terraform with the new backend
-terraform init
-
-# Verify backend configuration
-terraform state list
+shred -u ~/.config/tfstate-key.json 2>/dev/null \
+  || rm -P ~/.config/tfstate-key.json 2>/dev/null \
+  || rm -f ~/.config/tfstate-key.json
 ```
 
-## Usage
+> **Service accounts cannot create vaults or items, and cannot read
+> `Private`/`Personal` vaults.** If `OP_SERVICE_ACCOUNT_TOKEN` is set in your
+> shell it takes precedence over your personal session and this command will
+> fail. Run it in a shell where that variable is unset.
 
-### Daily Workflow
-
-Every time you work with Terraform, load the credentials first:
+### Step 5 — Configure and initialise
 
 ```bash
-# Load credentials
-source scripts/setup-backend-credentials.sh
+cp backend.tfvars.example backend.tfvars
+# edit bucket / region / endpoint to match Steps 1-3
 
-# Run Terraform commands
+git check-ignore -v backend.tfvars     # must report a match
+
+source scripts/setup-backend-credentials.sh
+terraform init -backend-config=backend.tfvars
+```
+
+## Migrating existing local state
+
+```bash
+# 1. Back up, outside the repo
+cp terraform.tfstate ~/tfstate-backup-$(date +%F).json
+
+# 2. Record what you expect to migrate
+terraform state list | wc -l
+
+# 3. Migrate
+source scripts/setup-backend-credentials.sh
+terraform init -backend-config=backend.tfvars -migrate-state
+
+# 4. Verify the counts match BEFORE trusting the migration
+terraform state list | wc -l
+aws s3 ls "s3://$BUCKET/" --recursive \
+  --endpoint-url https://fr-par-1.linodeobjects.com
+
+# 5. Only once verified
+rm terraform.tfstate terraform.tfstate.backup terraform.tfstate.*.backup
+```
+
+A successful `init` exit code is **not** evidence the state migrated. Compare
+resource counts between the old and new state before deleting anything.
+
+## Daily workflow
+
+```bash
+source scripts/setup-backend-credentials.sh
 terraform plan
 terraform apply
 ```
 
-### Customizing 1Password Setup
+The credentials live only in the shell environment and vanish when it closes.
 
-If you use different vault names or item names, set these environment variables:
+## Backend arguments
 
-```bash
-export OP_VAULT_NAME="YourVaultName"
-export OP_OBJECT_STORAGE_ITEM="your-item-name"
-export OP_ENCRYPTION_ITEM="your-encryption-item"
+Terraform 1.6 **removed** several S3 backend arguments. Configuration copied
+from older guides will fail `terraform init`.
 
-source scripts/setup-backend-credentials.sh
-```
+| Removed / deprecated | Current |
+|---|---|
+| `endpoint = "..."` | `endpoints = { s3 = "..." }` |
+| `force_path_style = true` | `use_path_style = true` |
+| `dynamodb_table = "..."` | `use_lockfile = true` |
 
-## Encryption Options
+Linode-specific arguments:
 
-### Option 1: Default S3 Encryption (Recommended)
+- `skip_credentials_validation`, `skip_metadata_api_check`,
+  `skip_region_validation`, `skip_requesting_account_id` — Linode is not AWS,
+  so the AWS preflight checks must be skipped.
+- `skip_s3_checksum = true` — Linode's Ceph gateway rejects newer AWS checksum
+  headers.
 
-Set `encrypt = true` in the backend configuration. Linode Object Storage will handle encryption at rest.
+`region` is the Object Storage endpoint id (`fr-par-1`, `gb-lon-1`,
+`us-east-1`, …), not the Linode compute region (`fr-par`, `eu-west`).
 
-```hcl
-backend "s3" {
-  # ... other config ...
-  encrypt = true
-}
-```
+## State locking
 
-### Option 2: Customer-Provided Encryption Key (SSE-C)
+`use_lockfile = true` writes a `<key>.tflock` object for the duration of an
+operation and deletes it afterwards. This is verified working against Linode
+Object Storage.
 
-For additional security, provide your own encryption key:
-
-1. Generate a 256-bit key:
-   ```bash
-   openssl rand -base64 32
-   ```
-
-2. Store it in 1Password (see Step 3)
-
-3. Modify `scripts/setup-backend-credentials.sh` to export the key:
-   ```bash
-   export TF_VAR_backend_encryption_key=$(op read "op://Infrastructure/terraform-state-encryption/encryption_key")
-   ```
-
-4. Update backend config to use the key (implementation varies by provider)
-
-## Available Linode Object Storage Regions
-
-- `us-east-1`: Newark, NJ
-- `us-southeast-1`: Atlanta, GA
-- `eu-central-1`: Frankfurt, Germany
-- `ap-south-1`: Singapore
-
-Update the `endpoint` in your backend configuration accordingly:
-- `https://us-east-1.linodeobjects.com`
-- `https://us-southeast-1.linodeobjects.com`
-- `https://eu-central-1.linodeobjects.com`
-- `https://ap-south-1.linodeobjects.com`
-
-## Migrating Existing State
-
-If you already have a local state file:
+If an operation is killed mid-run the lock object can survive. Clear it with:
 
 ```bash
-# Load credentials
-source scripts/setup-backend-credentials.sh
-
-# Uncomment and configure backend in provider.tf
-
-# Initialize and migrate
-terraform init -migrate-state
-
-# Terraform will prompt to copy existing state to the new backend
-# Answer "yes" to proceed
+terraform force-unlock <LOCK_ID>
 ```
+
+Only do this once you are certain no other operation is running.
 
 ## Troubleshooting
 
-### Authentication Errors
+**`Error: Invalid backend configuration argument`** — you are using removed
+argument names. See the table above.
 
-**Problem**: "Error: error configuring S3 Backend: no valid credential sources found"
+**`403 Forbidden` / `SignatureDoesNotMatch`** — credentials not loaded, or the
+key is scoped to a different bucket. Re-run
+`source scripts/setup-backend-credentials.sh` and confirm both variables are
+set (`[ -n "$AWS_ACCESS_KEY_ID" ] && echo set`). Never echo their values.
 
-**Solution**:
-- Ensure you've run `source scripts/setup-backend-credentials.sh`
-- Verify credentials in 1Password: `op read "op://Infrastructure/linode-object-storage/access_key_id"`
-- Check that you're signed in to 1Password: `op account list`
+**`NoSuchBucket`** — `region` is set to the compute region rather than the
+Object Storage endpoint id, or `endpoints.s3` points at the wrong cluster.
 
-### Bucket Access Errors
+**`Error acquiring the state lock`** — a stale `.tflock` object. Confirm nothing
+else is running, then `terraform force-unlock <LOCK_ID>`.
 
-**Problem**: "Error: error listing S3 Bucket Objects: NoSuchBucket"
+**1Password read fails** — the service-account token in your shell takes
+precedence over your personal session, and service accounts cannot read
+`Private`/`Personal` vaults. Ensure the item is in a shared vault the account
+has been granted.
 
-**Solution**:
-- Verify the bucket name in `provider.tf` matches your Linode bucket
-- Ensure the bucket exists in the correct region
-- Check endpoint URL matches your region
+## Security notes
 
-### Encryption Errors
+- `backend.tfvars`, `terraform.tfvars` and `*.tfstate*` are gitignored.
+  Verify with `git check-ignore -v <file>` after any `.gitignore` change.
+- State contains every sensitive value in the configuration in **plaintext**.
+  Treat the bucket as a secret store: private ACL, bucket-scoped key, no public
+  access.
+- Never print credential values. Use `[ -n "$VAR" ]` or `${#VAR}` to confirm a
+  variable is set.
 
-**Problem**: State file cannot be decrypted
+## Additional resources
 
-**Solution**:
-- Ensure the same encryption key is used consistently
-- Don't lose the encryption key stored in 1Password
-- Consider backing up the 1Password item
-
-## Security Best Practices
-
-1. **Never commit credentials** to version control
-2. **Rotate access keys** regularly in Linode Cloud Manager
-3. **Use separate buckets** for different environments (dev/staging/prod)
-4. **Enable bucket versioning** to protect against accidental deletions
-5. **Restrict bucket access** using Linode's access control features
-6. **Backup 1Password vault** regularly
-7. **Use different encryption keys** for different environments
-
-## State Locking
-
-Note: Linode Object Storage doesn't support native state locking like AWS DynamoDB. For team environments, consider:
-
-- Using Terraform Cloud for state management
-- Implementing a custom locking mechanism
-- Coordinating state operations through CI/CD pipelines
-- Using `-lock=false` flag cautiously when needed
-
-## Additional Resources
-
-- [Linode Object Storage Documentation](https://www.linode.com/docs/products/storage/object-storage/)
-- [Terraform S3 Backend Documentation](https://www.terraform.io/docs/language/settings/backends/s3.html)
-- [1Password CLI Documentation](https://developer.1password.com/docs/cli/)
-- [Terraform State Management Best Practices](https://www.terraform.io/docs/language/state/index.html)
+- [Terraform S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3)
+- [Linode Object Storage](https://techdocs.akamai.com/cloud-computing/docs/object-storage)
+- [1Password CLI](https://developer.1password.com/docs/cli/)
