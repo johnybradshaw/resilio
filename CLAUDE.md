@@ -136,9 +136,17 @@ The project uses `for_each` with `toset(var.regions)` for multi-region deploymen
 - `ubuntu_advantage_token`
 - `object_storage_access_key`, `object_storage_secret_key`, `object_storage_endpoint`, `object_storage_bucket`
 
-**However**, the `ignore_changes = [metadata]` lifecycle rule in `modules/linode/main.tf` **prevents automatic instance recreation** when these variables change. This is a safety feature to protect your data and prevent unintended downtime.
+**These changes DO trigger recreation.** `metadata` is deliberately *not* in
+`ignore_changes` (commit `94df96a`, "Enable instance recreation for cloud-init
+changes"). The reasoning: silently absorbing cloud-init drift means a renewed SSL
+certificate, a rotated Object Storage key or a hardening fix can sit in Terraform
+state for months without ever reaching an instance. A visible replacement is the
+lesser evil.
 
-To apply changes to these variables, you must perform an **explicit replacement** as detailed in the 'Forcing Instance Replacement' section below.
+**The risk is therefore blast radius, not silence.** A plain `terraform apply` will
+replace **all regions at once**, and because `create_before_destroy` is not used
+(see below), every region is offline simultaneously and sync stops everywhere.
+Always stage the rollout one region at a time - see 'Safe Deployment Procedures'.
 
 **Variables that DO trigger recreation**:
 - `instance_type` changes (may recreate depending on Linode provider)
@@ -148,7 +156,7 @@ To apply changes to these variables, you must perform an **explicit replacement*
 ### Data Loss Risk Assessment
 
 **Protected (data survives instance recreation)**:
-- Volumes have `prevent_destroy = true` in `modules/volume/main.tf:14`
+- Volumes have `prevent_destroy = true` in `modules/volume/main.tf:30`
 - Volumes ignore label/region changes (`ignore_changes = [label, region]`)
 - Resilio identity and license are stored on the volume and preserved (cloud-init checks before creating)
 
@@ -168,17 +176,20 @@ To apply changes to these variables, you must perform an **explicit replacement*
 
 2. **Check sync status** - Ensure all data is synced across regions before proceeding
 
-3. **Apply changes one region at a time** using targeted applies:
+3. **Apply changes one region at a time.** Never a bare `terraform apply` when
+   cloud-init has changed - that replaces all five regions together.
    ```bash
-   # Apply to us-east first
+   # One region at a time; -target limits the blast radius
    terraform apply -target='module.linode_instances["us-east"]'
 
-   # Wait for sync to complete, then apply to other regions
+   # Wait for the region to boot AND finish re-syncing before the next
    terraform apply -target='module.linode_instances["eu-west"]'
 
-   # Finally, apply remaining changes
+   # Finally, apply any remaining non-instance changes
    terraform apply
    ```
+   Use `-replace=...` instead when the config has not changed but you want to
+   rebuild an instance anyway.
 
 4. **Never apply during active sync operations** - Wait for sync to complete
 
@@ -186,15 +197,25 @@ To apply changes to these variables, you must perform an **explicit replacement*
 
 The following safety mechanisms are in place to prevent data loss:
 
-1. **Lifecycle rules ignore metadata changes** (`modules/linode/main.tf`):
-   - `ignore_changes = [metadata]` prevents instance recreation when cloud-init variables change
-   - Configuration changes require manual intervention or explicit replacement
+1. **Volume protection is the primary data safeguard** (`modules/volume/main.tf:30`):
+   - `prevent_destroy = true` and `ignore_changes = [label, region]` mean a volume is
+     never destroyed or recreated. Instance replacement detaches and reattaches it.
+   - Note there is deliberately NO `ignore_changes = [metadata]` on the instance, so
+     cloud-init changes are visible as a replacement rather than silently dropped.
 
-2. **fs_setup does not overwrite data volume** (`modules/linode/cloud-init.tpl:33`):
-   - `overwrite: false` ensures existing data is never formatted on instance recreation
+2. **fs_setup does not overwrite data volumes** (`modules/linode/cloud-init.tpl:39`):
+   - Per-folder data volumes use `overwrite: false`, so existing filesystems are
+     never reformatted on instance recreation. `disk_setup` does the same at line 29.
+   - The OS temp partitions (`/dev/sdb1-3`, lines 34-36) DO use `overwrite: true`.
+     That is intentional - they hold `/tmp`, `/var/log` and `/var/tmp` only.
 
-3. **Create before destroy** (`modules/linode/main.tf`):
-   - `create_before_destroy = true` ensures new instance is created and can sync before old one is removed
+3. **Create before destroy is NOT used** (`modules/linode/main.tf`):
+   - Linode requires unique instance labels, so a replacement cannot be created
+     while the old instance still exists. `create_before_destroy` was deliberately
+     removed for this reason.
+   - **Consequence**: a replaced instance is destroyed FIRST, then recreated. That
+     region is offline for the duration. Replace one region at a time so the other
+     regions keep serving and can re-sync the replaced one.
 
 ### Forcing Instance Replacement
 

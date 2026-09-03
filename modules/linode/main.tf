@@ -125,6 +125,18 @@ resource "linode_instance" "resilio" {
     # so new instance can't be created while old one exists with same label
     # This means instances will be destroyed THEN created when recreated.
     # Volumes are protected with prevent_destroy = true and will survive recreation.
+
+    # user_data (metadata) is deliberately NOT in ignore_changes. Commit 94df96a
+    # removed it so that cloud-init changes DO surface as a replacement instead of
+    # being silently absorbed - a renewed SSL certificate that never reaches the
+    # instances is worse than a visible replacement.
+    #
+    # The risk this leaves is blast radius, not silence: a plain `terraform apply`
+    # replaces all regions at once and, with no create_before_destroy, every region
+    # is down together. Stage it instead, one region at a time:
+    #   terraform apply -target='module.linode_instances["us-east"]'
+    # Data volumes survive: prevent_destroy = true in modules/volume, and cloud-init
+    # uses overwrite: false for every per-folder volume.
   }
 }
 
