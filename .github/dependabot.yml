@@ -1,11 +1,50 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot version updates.
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Coverage notes:
+#   - Terraform: root `provider.tf` pins with `~>`; child modules under
+#     `modules/*/versions.tf` declare `>=` floors. Both are scanned so a
+#     pessimistic constraint reintroduced in a child module is caught before it
+#     caps the whole configuration (see PRs #38/#39).
+#   - GitHub Actions: covers all of .github/workflows/. Dependabot updates both
+#     tag refs and full SHA pins (rewriting the trailing version comment).
+#   - `.pre-commit-config.yaml` is NOT covered — Dependabot has no pre-commit
+#     ecosystem. Bump those `rev:` values with `pre-commit autoupdate`.
 
 version: 2
 updates:
-  - package-ecosystem: "terraform" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "terraform"
+    directories:
+      - "/"
+      - "/modules/*"
     schedule:
       interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      terraform-providers:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
