@@ -1,87 +1,76 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # scripts/setup-backend-credentials.sh
 #
-# Helper script to set up Terraform backend credentials from 1Password
-# This script exports the necessary environment variables for Terraform to use
-# Linode Object Storage as a backend with encryption.
+# Loads Terraform backend credentials for Linode Object Storage from 1Password.
 #
-# Prerequisites:
-# 1. Install 1Password CLI: https://developer.1password.com/docs/cli/get-started/
-# 2. Sign in to 1Password: op signin
-# 3. Store your credentials in 1Password with the following structure:
-#    - Item: "linode-object-storage" in vault "Infrastructure"
-#      - access_key_id: Your Linode Object Storage access key
-#      - secret_access_key: Your Linode Object Storage secret key
-#    - Item: "terraform-state-encryption" in vault "Infrastructure"
-#      - encryption_key: 256-bit (32-byte) AES key, base64-encoded
+# This script must be SOURCED, not executed, so the exported variables persist
+# in your shell:
 #
-# Usage:
 #   source scripts/setup-backend-credentials.sh
-#   # Then run your terraform commands
-#   terraform init
+#   terraform init -backend-config=backend.tfvars
 #   terraform plan
+#
+# Expected 1Password item (see docs/BACKEND_SETUP.md for creation):
+#   op://secrets.resilio/terraform-state-backend/access_key_id
+#   op://secrets.resilio/terraform-state-backend/secret_access_key
+#
+# Override the vault or item via environment:
+#   OP_VAULT_NAME  (default: secrets.resilio)
+#   OP_ITEM_NAME   (default: terraform-state-backend)
 
-set -e
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-echo -e "${GREEN}Setting up Terraform backend credentials from 1Password...${NC}"
-
-# Check if 1Password CLI is installed
-if ! command -v op &> /dev/null; then
-    echo -e "${RED}Error: 1Password CLI (op) is not installed.${NC}"
-    echo "Install it from: https://developer.1password.com/docs/cli/get-started/"
-    return 1
+# Guard: refuse to run as a subprocess, where the exports would be discarded.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    echo "Error: this script must be sourced, not executed." >&2
+    echo "  Run: source ${0}" >&2
+    exit 1
 fi
 
-# Check if signed in to 1Password
-if ! op account list &> /dev/null; then
-    echo -e "${YELLOW}You need to sign in to 1Password first.${NC}"
-    echo "Run: op signin"
+_backend_creds_fail() {
+    echo "Error: $1" >&2
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
     return 1
+}
+
+VAULT_NAME="${OP_VAULT_NAME:-secrets.resilio}"
+ITEM_NAME="${OP_ITEM_NAME:-terraform-state-backend}"
+
+if ! command -v op >/dev/null 2>&1; then
+    _backend_creds_fail "1Password CLI (op) is not installed. See https://developer.1password.com/docs/cli/get-started/"
+    return $?
 fi
 
-# Configuration - adjust these to match your 1Password setup
-VAULT_NAME="${OP_VAULT_NAME:-Infrastructure}"
-OBJECT_STORAGE_ITEM="${OP_OBJECT_STORAGE_ITEM:-linode-object-storage}"
-ENCRYPTION_ITEM="${OP_ENCRYPTION_ITEM:-terraform-state-encryption}"
-
-echo -e "${GREEN}Retrieving credentials from 1Password...${NC}"
-
-# Export AWS credentials (used by S3 backend for Linode Object Storage)
-export AWS_ACCESS_KEY_ID=$(op read "op://${VAULT_NAME}/${OBJECT_STORAGE_ITEM}/access_key_id" 2>/dev/null)
-if [ $? -ne 0 ] || [ -z "$AWS_ACCESS_KEY_ID" ]; then
-    echo -e "${RED}Error: Could not retrieve access_key_id from 1Password${NC}"
-    echo "Make sure the item 'op://${VAULT_NAME}/${OBJECT_STORAGE_ITEM}/access_key_id' exists"
-    return 1
+if ! op whoami >/dev/null 2>&1; then
+    _backend_creds_fail "not signed in to 1Password. Run: op signin"
+    return $?
 fi
 
-export AWS_SECRET_ACCESS_KEY=$(op read "op://${VAULT_NAME}/${OBJECT_STORAGE_ITEM}/secret_access_key" 2>/dev/null)
-if [ $? -ne 0 ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-    echo -e "${RED}Error: Could not retrieve secret_access_key from 1Password${NC}"
-    echo "Make sure the item 'op://${VAULT_NAME}/${OBJECT_STORAGE_ITEM}/secret_access_key' exists"
-    return 1
+# Read both secrets before exporting either, so a partial failure leaves the
+# environment clean rather than half-configured.
+_ak="$(op read "op://${VAULT_NAME}/${ITEM_NAME}/access_key_id" 2>/dev/null)" || _ak=""
+_sk="$(op read "op://${VAULT_NAME}/${ITEM_NAME}/secret_access_key" 2>/dev/null)" || _sk=""
+
+if [ -z "${_ak}" ]; then
+    unset _ak _sk
+    _backend_creds_fail "could not read op://${VAULT_NAME}/${ITEM_NAME}/access_key_id"
+    return $?
 fi
 
-# Optional: Export encryption key if you're using SSE-C
-# export TF_VAR_backend_encryption_key=$(op read "op://${VAULT_NAME}/${ENCRYPTION_ITEM}/encryption_key" 2>/dev/null)
-# if [ $? -ne 0 ] || [ -z "$TF_VAR_backend_encryption_key" ]; then
-#     echo -e "${YELLOW}Warning: Could not retrieve encryption_key from 1Password${NC}"
-#     echo "Continuing without encryption key. State file will use default encryption."
-# fi
+if [ -z "${_sk}" ]; then
+    unset _ak _sk
+    _backend_creds_fail "could not read op://${VAULT_NAME}/${ITEM_NAME}/secret_access_key"
+    return $?
+fi
 
-echo -e "${GREEN}✓ Credentials successfully loaded from 1Password${NC}"
-echo -e "${GREEN}✓ AWS_ACCESS_KEY_ID is set${NC}"
-echo -e "${GREEN}✓ AWS_SECRET_ACCESS_KEY is set${NC}"
+export AWS_ACCESS_KEY_ID="${_ak}"
+export AWS_SECRET_ACCESS_KEY="${_sk}"
+unset _ak _sk
 
-# Optional: Show masked credentials for verification
-echo -e "\n${YELLOW}Credentials (masked):${NC}"
-echo "  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:0:4}...${AWS_ACCESS_KEY_ID: -4}"
-echo "  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:0:4}...${AWS_SECRET_ACCESS_KEY: -4}"
+# The S3 backend resolves region from backend.tfvars; this only assists any
+# aws/s3cmd calls made by hand in the same shell.
+export AWS_REGION="${AWS_REGION:-fr-par-1}"
 
-echo -e "\n${GREEN}You can now run Terraform commands with backend configured.${NC}"
-echo -e "Example: ${YELLOW}terraform init${NC}"
+echo "Backend credentials loaded from op://${VAULT_NAME}/${ITEM_NAME}"
+echo "  AWS_ACCESS_KEY_ID     set (${#AWS_ACCESS_KEY_ID} chars)"
+echo "  AWS_SECRET_ACCESS_KEY set (${#AWS_SECRET_ACCESS_KEY} chars)"
+echo
+echo "Next: terraform init -backend-config=backend.tfvars"

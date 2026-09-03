@@ -1,36 +1,52 @@
 # backend.tfvars.example
 #
-# Example backend configuration for Linode Object Storage
-# Copy this file and customize it for your environment
+# Backend configuration for Linode Object Storage (S3-compatible).
+#
+# The backend block in provider.tf is deliberately empty (a "partial
+# configuration"), so no bucket name or region is committed to this public
+# repository. The real values live in backend.tfvars, which is gitignored.
 #
 # Usage:
-#   1. Copy: cp backend.tfvars.example backend.tfvars
-#   2. Edit backend.tfvars with your values
-#   3. Uncomment the backend block in provider.tf
-#   4. Load credentials: source scripts/setup-backend-credentials.sh
-#   5. Initialize: terraform init -backend-config=backend.tfvars
+#   cp backend.tfvars.example backend.tfvars
+#   # edit backend.tfvars with your bucket and region
+#   source scripts/setup-backend-credentials.sh
+#   terraform init -backend-config=backend.tfvars
 #
-# Note: backend.tfvars is in .gitignore to prevent accidental commits
+# Requires Terraform >= 1.10 (for use_lockfile). See docs/BACKEND_SETUP.md.
 
-# Bucket Configuration
-bucket = "terraform-state-resilio"
+# --- Bucket ---------------------------------------------------------------
+bucket = "CHANGE-ME-terraform-state-bucket"
 key    = "resilio/terraform.tfstate"
-region = "us-east-1"
 
-# Linode Object Storage Endpoint
-# Available regions:
-#   us-east-1: https://us-east-1.linodeobjects.com
-#   us-southeast-1: https://us-southeast-1.linodeobjects.com
-#   eu-central-1: https://eu-central-1.linodeobjects.com
-#   ap-south-1: https://ap-south-1.linodeobjects.com
-endpoint = "https://us-east-1.linodeobjects.com"
+# Region is the Linode Object Storage endpoint id, e.g. fr-par-1, gb-lon-1,
+# us-east-1, eu-central-1. List them with:
+#   linode-cli object-storage clusters-list
+region = "fr-par-1"
 
-# S3-compatible settings for Linode
+# --- Endpoint -------------------------------------------------------------
+# Terraform 1.6+ uses the `endpoints` object. The older top-level `endpoint`
+# argument was removed and will fail `terraform init`.
+endpoints = { s3 = "https://fr-par-1.linodeobjects.com" }
+
+# --- S3 compatibility -----------------------------------------------------
+# Linode Object Storage is S3-compatible but is not AWS, so the AWS-specific
+# preflight checks must be skipped or init fails against a valid bucket.
+use_path_style              = true
 skip_credentials_validation = true
 skip_metadata_api_check     = true
 skip_region_validation      = true
 skip_requesting_account_id  = true
-force_path_style            = true
 
-# Encryption
-encrypt = true
+# Linode's Ceph gateway rejects the newer AWS checksum headers.
+skip_s3_checksum = true
+
+# --- State locking --------------------------------------------------------
+# S3-native locking via a .tflock object (Terraform >= 1.10). This replaces
+# the DynamoDB table AWS requires; Linode has no DynamoDB equivalent.
+# Verified working against Linode Object Storage.
+use_lockfile = true
+
+# --- Credentials ----------------------------------------------------------
+# NEVER put credentials in this file. They are read from the environment:
+#   source scripts/setup-backend-credentials.sh
+# which populates AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from 1Password.
