@@ -15,8 +15,7 @@ Terraform's S3-compatible backend, with credentials held in 1Password.
 
 ## Prerequisites
 
-- Terraform **>= 1.10** (`use_lockfile`). This repo pins `>= 1.5.0` for the
-  root module, but the backend features documented here need 1.10+.
+- Terraform **>= 1.10**, which the root module now requires (`use_lockfile`).
 - [1Password CLI](https://developer.1password.com/docs/cli/get-started/), signed in.
 - `linode-cli`, authenticated against the target account.
 
@@ -98,10 +97,13 @@ op item create \
   "endpoint[text]=https://fr-par-1.linodeobjects.com"
 ```
 
-Then remove the local copy:
+Then remove the local copy. `rm -P` is macOS-only - on GNU/Linux it is not a
+valid flag, the command fails, and the access and secret keys are left on disk:
 
 ```bash
-rm -P ~/.config/tfstate-key.json
+shred -u ~/.config/tfstate-key.json 2>/dev/null \
+  || rm -P ~/.config/tfstate-key.json 2>/dev/null \
+  || rm -f ~/.config/tfstate-key.json
 ```
 
 > **Service accounts cannot create vaults or items, and cannot read

@@ -64,7 +64,7 @@ git commit -m "Update provider lock file"
 
 Install these tools before starting:
 
-1. **Terraform** >= 1.5.0
+1. **Terraform** >= 1.10.0 (the S3 backend's `use_lockfile` requires it)
    ```bash
    # Check version
    terraform version

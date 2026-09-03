@@ -8,6 +8,12 @@
 #
 # SECURITY: Never commit backend.tf with credentials to version control!
 # Add 'backend.tf' to .gitignore if it contains sensitive values.
+#
+# IMPORTANT: provider.tf ALREADY declares `backend "s3" {}` (a partial
+# configuration completed by backend.tfvars). Terraform permits exactly one
+# backend block per configuration, so if you adopt one of the alternatives
+# below you must REPLACE the block in provider.tf - not add a second one, which
+# fails with "Duplicate backend configuration".
 
 # ============================================================================
 # Option 1: Linode Object Storage Backend (IN USE for this repository)

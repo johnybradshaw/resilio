@@ -34,7 +34,9 @@ terraform {
       version = "~> 2.21"
     }
   }
-  required_version = ">= 1.5.0"
+  # 1.10+ is required by the S3 backend's use_lockfile (see backend.tfvars).
+  # On 1.5-1.9 `terraform init` rejects that argument outright.
+  required_version = ">= 1.10.0"
 }
 
 provider "linode" {

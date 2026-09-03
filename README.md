@@ -22,7 +22,7 @@ A production-ready Terraform solution for deploying Resilio Sync on Linode acros
 
 ## 📋 Prerequisites
 
-- **Terraform** >= 1.5.0
+- **Terraform** >= 1.10.0
 - **Linode API Token** with full permissions
 - **SSH Public Key** for instance access
 - **Resilio Sync** folder key and license key
@@ -445,7 +445,7 @@ terraform init -upgrade
 
 **Common Errors:**
 - `locked provider does not match configured version constraint` → Run `bash scripts/fix-provider-lock.sh`
-- `Unsupported Terraform Core version` → Upgrade Terraform to >= 1.5.0
+- `Unsupported Terraform Core version` → Upgrade Terraform to >= 1.10.0
 - `provider registry does not have a provider named hashicorp/linode` → Run `bash scripts/fix-provider-lock.sh --clean`
 
 ### DNS Not Resolving
