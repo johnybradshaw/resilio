@@ -42,19 +42,43 @@ resource "linode_object_storage_key" "backup" {
 
 # Local values for bucket endpoints
 locals {
+  # The API's `region` attribute is the COMPUTE region id ("us-east"), but the
+  # S3 endpoint needs the CLUSTER id ("us-east-1"). Assembling the endpoint as
+  # "${bucket.region}.linodeobjects.com" therefore produced the INVALID host
+  # "us-east.linodeobjects.com" and every backup failed to resolve.
+  #
+  # Derive it from the bucket's own hostname instead of assembling it, so it is
+  # correct whichever form the provider returns:
+  #   <label>.<cluster>.linodeobjects.com  ->  <cluster>.linodeobjects.com
+  bucket_endpoints = {
+    for region, bucket in linode_object_storage_bucket.backup :
+    region => replace(bucket.hostname, "${bucket.label}.", "")
+  }
+
   # Map of region to bucket details
-  # Object Storage region IDs already include the suffix (e.g., us-east-1)
   bucket_details = {
     for region, bucket in linode_object_storage_bucket.backup : region => {
       name     = bucket.label
-      cluster  = bucket.region # Region ID is already in correct format (e.g., us-east-1)
-      endpoint = "${bucket.region}.linodeobjects.com"
+      cluster  = split(".", local.bucket_endpoints[region])[0]
+      endpoint = local.bucket_endpoints[region]
       hostname = bucket.hostname
     }
   }
 
-  # Primary bucket (first in alphabetical order for consistency)
-  primary_region   = sort(var.backup_regions)[0]
-  primary_bucket   = local.bucket_details[local.primary_region]
+  # Primary bucket (first in alphabetical order for consistency).
+  #
+  # These must tolerate bucket_details being EMPTY. A hard index here made the
+  # configuration unable to recover from its own broken state: once the buckets
+  # were deleted out-of-band, `terraform refresh` could not complete, which is
+  # exactly the operation needed to notice the deletion and recreate them.
+  # Deadlocks like that are worse than a transiently empty value, which the
+  # consumers in main.tf already guard with `length(module.backup_storage) > 0`.
+  primary_region = length(var.backup_regions) > 0 ? sort(var.backup_regions)[0] : ""
+  primary_bucket = try(local.bucket_details[local.primary_region], {
+    name     = ""
+    cluster  = ""
+    endpoint = ""
+    hostname = ""
+  })
   primary_endpoint = local.primary_bucket.endpoint
 }

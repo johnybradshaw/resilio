@@ -125,7 +125,7 @@ tags = ["deployment: terraform", "app: resilio", "environment: production"]
 #   ap-south-1, jp-osa-1, in-maa-1, id-cgk-1, au-mel-1 (Asia-Pacific)
 #   br-gru-1 (South America)
 # Default: ["us-east-1"]
-# backup_storage_regions = ["us-east-1", "eu-central-1"]
+# backup_storage_regions = ["us-east", "eu-central"]  # COMPUTE region ids, not cluster ids
 
 # VM regions that should run backups (which VMs push to storage)
 # Only one region needed since all VMs have same data via Resilio Sync
