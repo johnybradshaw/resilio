@@ -210,3 +210,47 @@ variable "cloud_user" {
   type        = string
   default     = "ac-user"
 }
+
+# =============================================================================
+# WAZUH AGENT / CANONICAL LANDSCAPE
+# =============================================================================
+
+variable "wazuh_config" {
+  description = "Wazuh agent enrolment configuration. Sensitive: carries the authd enrolment password."
+  type = object({
+    enabled               = bool
+    manager               = string # workers, events on 1514
+    registration_server   = string # master, enrolment on 1515
+    registration_password = string
+    agent_group           = string
+    ca_sha256             = string
+    ca_object             = string
+  })
+  sensitive = true
+  default = {
+    enabled               = false
+    manager               = ""
+    registration_server   = ""
+    registration_password = ""
+    agent_group           = "default"
+    ca_sha256             = ""
+    ca_object             = ""
+  }
+}
+
+variable "landscape_config" {
+  description = "Canonical Landscape SaaS enrolment configuration. Sensitive: carries the registration key."
+  type = object({
+    enabled          = bool
+    account_name     = string
+    registration_key = string
+    tags             = string
+  })
+  sensitive = true
+  default = {
+    enabled          = false
+    account_name     = ""
+    registration_key = ""
+    tags             = ""
+  }
+}

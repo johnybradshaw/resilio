@@ -117,6 +117,41 @@ resource "linode_instance" "resilio" {
       webui_password = random_password.passwords["webui_password"].result
       # Cloud user for SSH access
       cloud_user = var.cloud_user
+
+      # Wazuh agent enrolment. See the internal Wazuh agent enrolment runbook
+      # for the authoritative contract. Three details matter and are easy to
+      # get wrong:
+      #
+      #  1. manager and registration_server are DIFFERENT hosts. Events go to
+      #     the workers on 1514; enrolment goes to the master on 1515. Neither
+      #     load balancer carries the other's port, so pointing at the wrong
+      #     name fails as a silent connect timeout, not an error.
+      #  2. The manager CA must be pinned. With it unset, Wazuh logs
+      #     "Registering agent to unverified manager" and performs no chain or
+      #     hostname check at all - it would hand the shared enrolment password
+      #     to whatever answered. The 2.2KB PEM does not fit in user_data, so
+      #     cloud-init fetches it from the backup bucket and verifies its
+      #     fingerprint before use.
+      #  3. The manager refuses a re-registration that reuses an existing agent
+      #     name. instance_label carries the random suffix, so every replacement
+      #     enrols as a new agent. Stale records accumulate and need periodic
+      #     pruning on the manager.
+      #
+      # nonsensitive() is applied to the flag only, so it can drive a
+      # %{ if } directive; the password itself stays sensitive.
+      wazuh_enabled               = nonsensitive(var.wazuh_config.enabled)
+      wazuh_manager               = var.wazuh_config.manager
+      wazuh_registration_server   = var.wazuh_config.registration_server
+      wazuh_registration_password = var.wazuh_config.registration_password
+      wazuh_agent_group           = var.wazuh_config.agent_group
+      wazuh_ca_sha256             = var.wazuh_config.ca_sha256
+      wazuh_ca_object             = var.wazuh_config.ca_object
+
+      # Canonical Landscape SaaS enrolment
+      landscape_enabled          = nonsensitive(var.landscape_config.enabled)
+      landscape_account_name     = var.landscape_config.account_name
+      landscape_registration_key = var.landscape_config.registration_key
+      landscape_tags             = var.landscape_config.tags
     }))
   }
 
@@ -125,18 +160,6 @@ resource "linode_instance" "resilio" {
     # so new instance can't be created while old one exists with same label
     # This means instances will be destroyed THEN created when recreated.
     # Volumes are protected with prevent_destroy = true and will survive recreation.
-
-    # user_data (metadata) is deliberately NOT in ignore_changes. Commit 94df96a
-    # removed it so that cloud-init changes DO surface as a replacement instead of
-    # being silently absorbed - a renewed SSL certificate that never reaches the
-    # instances is worse than a visible replacement.
-    #
-    # The risk this leaves is blast radius, not silence: a plain `terraform apply`
-    # replaces all regions at once and, with no create_before_destroy, every region
-    # is down together. Stage it instead, one region at a time:
-    #   terraform apply -target='module.linode_instances["us-east"]'
-    # Data volumes survive: prevent_destroy = true in modules/volume, and cloud-init
-    # uses overwrite: false for every per-folder volume.
   }
 }
 

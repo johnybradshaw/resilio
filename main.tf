@@ -312,6 +312,31 @@ module "linode_instances" {
   object_storage_bucket     = local.backup_primary_bucket
   enable_backup             = local.backup_config.enabled && contains(local.effective_backup_source_regions, each.key)
 
+  # Wazuh agent enrolment.
+  # NOTE: manager and registration_server are DIFFERENT hosts by design -
+  # events go to the workers on 1514, enrolment to the master on 1515.
+  wazuh_config = {
+    enabled               = var.wazuh_enabled
+    manager               = var.wazuh_manager
+    registration_server   = var.wazuh_registration_server
+    registration_password = var.wazuh_registration_password
+    agent_group           = var.wazuh_agent_group
+    ca_sha256             = var.wazuh_ca_sha256
+    ca_object             = var.wazuh_ca_object
+  }
+
+  # Canonical Landscape SaaS enrolment.
+  landscape_config = {
+    enabled          = var.landscape_enabled
+    account_name     = var.landscape_account_name
+    registration_key = var.landscape_registration_key
+    tags = join(",", concat(
+      ["resilio", replace(var.project_name, ".", "-")],
+      [replace(each.key, ".", "-")],
+      var.landscape_tags,
+    ))
+  }
+
   # Phase-2 script delivery. Without these the instance keeps the cloud-init
   # placeholders and backups silently do nothing.
   provision_scripts = var.provision_scripts
