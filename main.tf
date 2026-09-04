@@ -100,15 +100,34 @@ resource "acme_certificate" "resilio" {
   dns_challenge {
     provider = "linode"
     config = {
-      LINODE_TOKEN               = var.linode_token
-      LINODE_PROPAGATION_TIMEOUT = "1200" # 20 minutes for DNS propagation
+      LINODE_TOKEN = var.linode_token
+      # Linode DNS publishes zone changes on a periodic rebuild, not on write:
+      # a freshly created TXT record is invisible on all five authoritative
+      # nameservers for many minutes. 1200s sat right on that boundary and the
+      # DNS-01 challenge timed out without ever validating, which presents as
+      # acme_certificate hanging in "Still modifying..." and then failing.
+      LINODE_PROPAGATION_TIMEOUT = "3600" # 60 min; must exceed Linode's rebuild cycle
       LINODE_POLLING_INTERVAL    = "30"   # Check every 30 seconds
       LINODE_TTL                 = "300"  # 5 minute TTL (Linode minimum)
     }
   }
 
-  # Renew when less than 30 days remain
-  min_days_remaining = 30
+  # TEMPORARILY -1 to disable renewal (INCIDENT: see below).
+  #
+  # The DNS-01 challenge is not validating: the _acme-challenge TXT records are
+  # created, publish correctly and resolve from all five authoritative
+  # nameservers, yet the provider waits out its entire propagation timeout
+  # (observed at both 1200s and 3600s) without the order ever completing.
+  # Let's Encrypt hands back the same challenge tokens on each attempt.
+  #
+  # A negative value disables the renewal check, so an expired certificate is
+  # reused as-is. That decouples rebuilding an instance from fixing ACME - with
+  # 30 here, a region cannot be recreated at all while the challenge is broken,
+  # which turned a routine replacement into a prolonged outage.
+  #
+  # RESTORE TO 30 once DNS-01 is fixed. Until then the web UI serves an expired
+  # certificate; Resilio sync itself is unaffected.
+  min_days_remaining = -1
 }
 
 # Create per-folder data volumes for each region
