@@ -303,15 +303,6 @@ module "linode_instances" {
   cloud_user = var.cloud_user
 }
 
-# provision_scripts without a key silently leaves placeholders in place - the
-# exact failure this change exists to remove. Fail the plan instead.
-check "provision_scripts_configured" {
-  assert {
-    condition     = !var.provision_scripts || var.ssh_private_key != ""
-    error_message = "provision_scripts is true but ssh_private_key is empty; the file provisioner cannot connect, so instances would keep their placeholder scripts and backups would not run."
-  }
-}
-
 module "dns" {
   source = "./modules/dns"
 

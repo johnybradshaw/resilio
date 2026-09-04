@@ -327,8 +327,18 @@ variable "provision_scripts" {
 }
 
 variable "ssh_private_key" {
-  description = "Private key matching ssh_public_key, used by the file provisioner via the jumpbox. Required when provision_scripts is true. Supply with file(\"~/.ssh/id_ed25519\") or an environment variable - never commit it."
+  description = "Private key matching ssh_public_key, used by the file provisioner via the jumpbox. Required when provision_scripts is true. Supply via TF_VAR_ssh_private_key - a .tfvars file cannot call file()."
   type        = string
   sensitive   = true
   default     = ""
+
+  # A `check` block was used here first. check blocks only emit WARNINGS: the
+  # plan and apply proceed, so an apply could start before failing later. That
+  # is the same quiet failure this whole change removes. Cross-variable
+  # validation errors properly, and is available since Terraform 1.9 (the root
+  # module requires >= 1.10.0).
+  validation {
+    condition     = !var.provision_scripts || var.ssh_private_key != ""
+    error_message = "provision_scripts is true but ssh_private_key is empty. The file provisioner cannot connect, so instances would keep their cloud-init placeholders and backups would not run. Set TF_VAR_ssh_private_key."
+  }
 }

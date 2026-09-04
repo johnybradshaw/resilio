@@ -336,10 +336,18 @@ Instance provisioning uses a two-phase approach to stay within Linode's 16KB use
 | `resilio-backup-watch.sh.tpl` | Realtime backup via inotify (for hybrid mode) |
 | `collect-diagnostics.sh` | Collect logs for troubleshooting |
 
-**To enable script provisioning**, set these in `terraform.tfvars`:
+**To enable script provisioning**, set the flag in `terraform.tfvars` and supply
+the key through the environment:
 ```hcl
+# terraform.tfvars
 provision_scripts = true
-ssh_private_key   = file("~/.ssh/id_ed25519")  # must match ssh_public_key
+```
+```bash
+# .tfvars files hold literal VALUES - they cannot call file(), so the key
+# cannot be read from disk there. Pass it as an environment variable:
+export TF_VAR_ssh_private_key="$(cat ~/.ssh/id_ed25519)"
+# or, when the key lives in 1Password:
+export TF_VAR_ssh_private_key="$(op read 'op://<vault>/<ssh-key-item>/private key')"
 ```
 `jumpbox_ip` is wired automatically from `module.jumpbox`; do not set it by hand.
 
