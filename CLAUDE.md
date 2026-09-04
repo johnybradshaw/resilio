@@ -395,12 +395,32 @@ Instance provisioning uses a two-phase approach to stay within Linode's 16KB use
 | `resilio-backup-watch.sh.tpl` | Realtime backup via inotify (for hybrid mode) |
 | `collect-diagnostics.sh` | Collect logs for troubleshooting |
 
-**To enable script provisioning**, set these variables:
+**To enable script provisioning**, set the flag in `terraform.tfvars` and supply
+the key through the environment:
 ```hcl
+# terraform.tfvars
 provision_scripts = true
-ssh_private_key   = file("~/.ssh/id_rsa")
-jumpbox_ip        = module.jumpbox.ip_address
 ```
+```bash
+# .tfvars files hold literal VALUES - they cannot call file(), so the key
+# cannot be read from disk there. Pass it as an environment variable:
+export TF_VAR_ssh_private_key="$(cat ~/.ssh/id_ed25519)"
+# or, when the key lives in 1Password:
+export TF_VAR_ssh_private_key="$(op read 'op://<vault>/<ssh-key-item>/private key')"
+```
+`jumpbox_ip` is wired automatically from `module.jumpbox`; do not set it by hand.
+
+> **This was previously broken.** The root module declared neither
+> `provision_scripts` nor `ssh_private_key` and never passed them to
+> `module.linode_instances`, so the flag was permanently `false` and the real
+> scripts were **never delivered to any instance**. Setting `provision_scripts`
+> in `terraform.tfvars` produced only an "undeclared variable" warning.
+>
+> The consequence is quiet: the backup placeholder writes one line to
+> `/var/log/resilio-backup.log` and exits 0, so cron records success while no
+> backup happens. Rebuilding an instance downgrades it to placeholders.
+> Verify with `ls -l /usr/local/bin/resilio-backup.sh` - a placeholder is a few
+> hundred bytes, the real script is ~6.5KB.
 
 **Note**: Without `provision_scripts = true`, instances use minimal placeholder scripts from cloud-init. The full scripts can be manually transferred or will be installed on the next `terraform apply` with provisioning enabled.
 

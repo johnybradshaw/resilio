@@ -305,3 +305,40 @@ variable "cloud_user" {
   type        = string
   default     = "ac-user"
 }
+
+# =============================================================================
+# SCRIPT PROVISIONING (phase 2)
+# =============================================================================
+# Cloud-init installs PLACEHOLDER versions of resilio-backup.sh,
+# resilio-rehydrate.sh, resilio-backup-watch.sh and collect-diagnostics.sh, to
+# stay inside the user_data size limit. The real scripts are transferred over
+# SSH afterwards by null_resource.provision_scripts in modules/linode.
+#
+# That resource is gated on provision_scripts, which the root module previously
+# never declared or passed - so it was permanently false and the real scripts
+# were NEVER delivered to any instance. The backup placeholder logs one line and
+# exits 0, which cron records as success, so backups appeared healthy while
+# doing nothing. Rebuilding an instance silently downgraded it.
+
+variable "provision_scripts" {
+  description = "Transfer the full management scripts to instances over SSH after boot. Without this, instances keep the cloud-init placeholders and backups DO NOT RUN. Requires ssh_private_key."
+  type        = bool
+  default     = false
+}
+
+variable "ssh_private_key" {
+  description = "Private key matching ssh_public_key, used by the file provisioner via the jumpbox. Required when provision_scripts is true. Supply via TF_VAR_ssh_private_key - a .tfvars file cannot call file()."
+  type        = string
+  sensitive   = true
+  default     = ""
+
+  # A `check` block was used here first. check blocks only emit WARNINGS: the
+  # plan and apply proceed, so an apply could start before failing later. That
+  # is the same quiet failure this whole change removes. Cross-variable
+  # validation errors properly, and is available since Terraform 1.9 (the root
+  # module requires >= 1.10.0).
+  validation {
+    condition     = !var.provision_scripts || var.ssh_private_key != ""
+    error_message = "provision_scripts is true but ssh_private_key is empty. The file provisioner cannot connect, so instances would keep their cloud-init placeholders and backups would not run. Set TF_VAR_ssh_private_key."
+  }
+}
