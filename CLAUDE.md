@@ -168,26 +168,64 @@ Always stage the rollout one region at a time - see 'Safe Deployment Procedures'
 
 **Before making changes that trigger instance recreation**:
 
-1. **Verify backups are current**:
+1. **Verify backups are current** - and that a real backup script is installed,
+   not the cloud-init placeholder:
    ```bash
-   ssh -J ac-user@jumpbox ac-user@resilio-instance
+   ssh -J cloud-user@<jumpbox> cloud-user@<instance>
+   ls -l /usr/local/bin/resilio-backup.sh   # placeholder ~250B, real script ~6.5KB
    sudo tail -20 /var/log/resilio-backup.log
+   sudo cat /var/lib/resilio-backup/last-success
    ```
+   `Backup script not yet provisioned` means the placeholder is installed and
+   **no backup has ever run on this host**. The placeholder exits 0, so cron
+   records success regardless.
 
 2. **Check sync status** - Ensure all data is synced across regions before proceeding
 
 3. **Apply changes one region at a time.** Never a bare `terraform apply` when
-   cloud-init has changed - that replaces all five regions together.
+   cloud-init has changed - that replaces every region in `var.regions`
+   together. Target **each** region explicitly; the list below must cover all of
+   them, or the final unrestricted apply replaces whatever was missed, all at
+   once.
    ```bash
-   # One region at a time; -target limits the blast radius
-   terraform apply -target='module.linode_instances["us-east"]'
-
-   # Wait for the region to boot AND finish re-syncing before the next
-   terraform apply -target='module.linode_instances["eu-west"]'
-
-   # Finally, apply any remaining non-instance changes
-   terraform apply
+   for r in us-east eu-west fr-par ap-northeast it-mil; do
+     terraform apply -target="module.linode_instances[\"$r\"]"
+     # then WAIT: boot, cloud-init completion, and re-sync, before the next
+   done
+   terraform apply     # reconciles firewall, DNS and anything non-instance
    ```
+
+   > **`-target` leaves the firewall stale, and the region cannot sync until you
+   > fix it.** `terraform_data.update_resilio_firewall` lives in the root module
+   > and depends on the instance IPs, so a targeted apply **excludes** it. The
+   > replaced instance comes back with a NEW IP that is absent from the shared
+   > firewall's `resilio-all-tcp/udp/icmp` rules, and its peers drop its traffic.
+   > The instance looks healthy in every API and console view while syncing with
+   > nothing.
+   >
+   > Targeting the resource does not help: it pulls in every instance as a
+   > dependency and would replace them all. Reconcile out of band after each
+   > region, which is exactly what the provisioner does anyway:
+   >
+   > ```bash
+   > # rewrite resilio-all-* with the CURRENT instance IPs
+   > curl -sS -H "Authorization: Bearer $LINODE_TOKEN" \
+   >   https://api.linode.com/v4/networking/firewalls/<resilio-fw-id>/rules
+   > # ...substitute the new IP, then PUT the full ruleset back (PUT REPLACES it,
+   > # so include inbound, inbound_policy, outbound and outbound_policy)
+   > ```
+   >
+   > Verify before moving on:
+   > ```bash
+   > curl -sS -H "Authorization: Bearer $LINODE_TOKEN" \
+   >   https://api.linode.com/v4/networking/firewalls/<id> | \
+   >   python3 -c 'import json,sys;[print(r["addresses"]["ipv4"]) for r in json.load(sys.stdin)["rules"]["inbound"] if r["label"]=="resilio-all-tcp"]'
+   > ```
+
+   > **The jumpbox firewall goes stale the same way.** `allowed_ssh_cidr` is
+   > derived from the operator's detected public IP, so when that changes nobody
+   > can SSH to any instance until `module.jumpbox_firewall` is applied. Check it
+   > before starting a rollout - you will need SSH to verify each region.
    Use `-replace=...` instead when the config has not changed but you want to
    rebuild an instance anyway.
 
