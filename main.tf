@@ -293,8 +293,23 @@ module "linode_instances" {
   object_storage_bucket     = local.backup_primary_bucket
   enable_backup             = local.backup_config.enabled && contains(local.effective_backup_source_regions, each.key)
 
+  # Phase-2 script delivery. Without these the instance keeps the cloud-init
+  # placeholders and backups silently do nothing.
+  provision_scripts = var.provision_scripts
+  ssh_private_key   = var.ssh_private_key
+  jumpbox_ip        = local.jumpbox_ip
+
   tags       = local.tags # Concat tags and tld
   cloud_user = var.cloud_user
+}
+
+# provision_scripts without a key silently leaves placeholders in place - the
+# exact failure this change exists to remove. Fail the plan instead.
+check "provision_scripts_configured" {
+  assert {
+    condition     = !var.provision_scripts || var.ssh_private_key != ""
+    error_message = "provision_scripts is true but ssh_private_key is empty; the file provisioner cannot connect, so instances would keep their placeholder scripts and backups would not run."
+  }
 }
 
 module "dns" {

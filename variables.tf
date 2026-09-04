@@ -305,3 +305,30 @@ variable "cloud_user" {
   type        = string
   default     = "ac-user"
 }
+
+# =============================================================================
+# SCRIPT PROVISIONING (phase 2)
+# =============================================================================
+# Cloud-init installs PLACEHOLDER versions of resilio-backup.sh,
+# resilio-rehydrate.sh, resilio-backup-watch.sh and collect-diagnostics.sh, to
+# stay inside the user_data size limit. The real scripts are transferred over
+# SSH afterwards by null_resource.provision_scripts in modules/linode.
+#
+# That resource is gated on provision_scripts, which the root module previously
+# never declared or passed - so it was permanently false and the real scripts
+# were NEVER delivered to any instance. The backup placeholder logs one line and
+# exits 0, which cron records as success, so backups appeared healthy while
+# doing nothing. Rebuilding an instance silently downgraded it.
+
+variable "provision_scripts" {
+  description = "Transfer the full management scripts to instances over SSH after boot. Without this, instances keep the cloud-init placeholders and backups DO NOT RUN. Requires ssh_private_key."
+  type        = bool
+  default     = false
+}
+
+variable "ssh_private_key" {
+  description = "Private key matching ssh_public_key, used by the file provisioner via the jumpbox. Required when provision_scripts is true. Supply with file(\"~/.ssh/id_ed25519\") or an environment variable - never commit it."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
