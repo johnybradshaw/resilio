@@ -44,6 +44,31 @@ resource "linode_domain" "resilio" {
   soa_email = "admin@${var.tld}"
   tags      = ["terraform", "dns", var.project_name]
 
+  # NOTE: this resource has count = var.create_domain ? 1 : 0, and create_domain
+  # defaults to FALSE. When reusing an existing Linode zone this block never
+  # applies, so that zone keeps Linode's 86400s SOA minimum and the negative
+  # cache can outlast the ACME propagation timeout. Set the zone's TTL by hand
+  # in that case - Terraform cannot do it through a data source.
+  #
+  # NOTE: this does NOT lower the SOA `minimum` field (the NEGATIVE cache TTL).
+  # Tested: after applying ttl_sec = 300 the published SOA still reported
+  # minimum=86400 for 10+ minutes, and a control zone that has never had
+  # ttl_sec set reports the same 86400. Linode does not expose the SOA minimum.
+  #
+  # The consequence is a live renewal hazard: a resolver that queries
+  # _acme-challenge before the record exists caches that miss for 24 HOURS,
+  # which outlasts the 1200s propagation timeout. Renewal always queries a name
+  # that does not yet exist.
+  #
+  # Mitigation when renewing manually: pre-create a dummy TXT at
+  # _acme-challenge first, so resolvers cache a positive answer instead of an
+  # NXDOMAIN. lego appends rather than replaces and matches its own value among
+  # all answers, so the dummy is harmless and can be removed afterwards.
+  #
+  # ttl_sec is kept because it does set the default record TTL, which is useful
+  # in its own right - just not for the SOA minimum.
+  ttl_sec = 300
+
   lifecycle {
     prevent_destroy = true
   }
@@ -62,13 +87,84 @@ locals {
 }
 
 # =============================================================================
+# CAA - authorise Let's Encrypt for this subtree, including wildcards
+# =============================================================================
+# A CA climbs from the requested name toward the root and uses the FIRST
+# non-empty CAA RRset (RFC 8659 sec.3). Publishing one at this zone apex
+# therefore takes precedence over whatever the parent zone publishes - and
+# REPLACES it for this subtree, so both tags must be present or non-wildcard
+# issuance breaks too.
+#
+# This matters because RFC 8659 sec.4.3 says a wildcard request considers
+# `issuewild` INSTEAD of `issue`. A parent publishing `issuewild ";"` (which
+# authorises nobody) silently blocks *.<tld> even when `issue` permits the CA -
+# and the failure surfaces only at issuance, as urn:ietf:params:acme:error:caa.
+# Pinning the policy here makes this subtree independent of the parent zone,
+# which may be managed by a different team or provider.
+resource "linode_domain_record" "caa_issue" {
+  domain_id   = local.domain_id
+  name        = ""
+  record_type = "CAA"
+  tag         = "issue"
+  target      = "letsencrypt.org"
+}
+
+resource "linode_domain_record" "caa_issuewild" {
+  domain_id   = local.domain_id
+  name        = ""
+  record_type = "CAA"
+  tag         = "issuewild"
+  target      = "letsencrypt.org"
+}
+
+# =============================================================================
 # ACME / LET'S ENCRYPT SSL CERTIFICATES
 # =============================================================================
 
-# Version trigger for ACME account key rotation
-# Increment the input value to force generation of a new ACME account key
+# Version trigger for ACME account key rotation.
+#
+# Bump this whenever the Let's Encrypt account behind the current key has been
+# deactivated. Deactivation is PERMANENT and irreversible: LE then refuses
+# new-acct for that public key forever with
+#   403 urn:ietf:params:acme:error:unauthorized
+#   "An account with the provided public key exists but is deactivated"
+# and the only way forward is a fresh account key, which is what bumping this
+# produces via replace_triggered_by on tls_private_key.acme_account.
+#
+# NOTE: destroying acme_registration DEACTIVATES the account as its delete
+# operation. So any `terraform destroy`, `-replace`, or a change to an argument
+# that forces replacement (email is derived from var.tld, so changing the
+# domain does it) burns the account key and requires a bump here.
+# !! CHANGING THIS VALUE REPLACES EVERY INSTANCE. Apply it targeted, then roll
+#    regions one at a time. Never as part of an ordinary `terraform apply`.
+#
+#    account_key_pem is ForceNew on acme_certificate, so a bump replaces the key,
+#    the registration and the certificate. The new PEMs flow into every
+#    linode_instances module and are interpolated into metadata.user_data, which
+#    is also force-new and is NOT in ignore_changes. create_before_destroy is
+#    off, so all regions are destroyed CONCURRENTLY.
+#
+#    min_days_remaining = -1 does NOT protect against this: it only short-circuits
+#    the renewal path, while schema-level ForceNew is evaluated separately.
+#
+#    Correct procedure:
+#      # CAA first: if the parent zone blocks Let's Encrypt, issuance fails
+#      # unless these exist beforehand.
+#      terraform apply -target=linode_domain.resilio \
+#                      -target=linode_domain_record.caa_issue \
+#                      -target=linode_domain_record.caa_issuewild
+#      terraform apply -target=terraform_data.acme_key_version \
+#                      -target=tls_private_key.acme_account \
+#                      -target=acme_registration.resilio \
+#                      -target=acme_certificate.resilio
+#      # then, per region, waiting for each to resync:
+#      terraform apply -target='module.linode_instances["<region>"]'
+#
+#    The durable fix is to stop putting the PEMs in user_data and deliver them
+#    via null_resource.provision_scripts (which has a content-hash trigger since
+#    #53), so a certificate change re-provisions files instead of replacing hosts.
 resource "terraform_data" "acme_key_version" {
-  input = "2" # Bumped: previous account was deactivated
+  input = "3" # Bumped after the previous account was deactivated. See warning above.
 }
 
 # ACME provider registration for Let's Encrypt
@@ -97,36 +193,75 @@ resource "acme_certificate" "resilio" {
     "*.${var.tld}"
   ]
 
+  # lego v5 (provider 3.x, bumped from 2.48.3) turned the RECURSIVE nameserver
+  # propagation check ON by default; under lego v4 it was opt-in and never ran.
+  # checkNameserversPropagationCustom returns on the FIRST nameserver that
+  # errors, and it reads /etc/resolv.conf. If ANY resolver listed there fails to
+  # answer for this zone - a stale DHCP-supplied entry is the common case - the
+  # recursive stage fails on every poll, forever, and the authoritative stage,
+  # which would have passed, is never reached.
+  #
+  # It is silent by construction: wait.For keeps the error in lastErr and logs
+  # it at Debug, and the provider's log bridge drops slog attributes, so even
+  # TF_LOG=DEBUG shows only "lego: Waiting for condition failed." The apply just
+  # sits in "Still modifying..." for 2x the propagation timeout (once per
+  # authorization: apex and wildcard).
+  #
+  # Pin resolvers that actually answer rather than inheriting resolv.conf. Keep
+  # this list SHORT - every entry must succeed, so each one is another way to
+  # fail. Fix the router's DHCP typo too, but this is the durable fix: it also
+  # covers CI runners and any other machine on that network.
+  recursive_nameservers = ["1.1.1.1:53", "1.0.0.1:53"]
+
+  # Do NOT revoke on destroy. Replacement destroys before creating, so the
+  # default would revoke the certificate the instances are currently serving,
+  # before its replacement exists - and revocation cannot be undone. A
+  # superseded certificate expiring naturally is the safer failure mode.
+  revoke_certificate_on_destroy = false
+
   dns_challenge {
     provider = "linode"
     config = {
       LINODE_TOKEN = var.linode_token
-      # Linode DNS publishes zone changes on a periodic rebuild, not on write:
-      # a freshly created TXT record is invisible on all five authoritative
-      # nameservers for many minutes. 1200s sat right on that boundary and the
-      # DNS-01 challenge timed out without ever validating, which presents as
-      # acme_certificate hanging in "Still modifying..." and then failing.
-      LINODE_PROPAGATION_TIMEOUT = "3600" # 60 min; must exceed Linode's rebuild cycle
+      # Measured: a new TXT is live on all five authoritative Linode nameservers
+      # ~146s after the API create returns. 1200s is ~8x headroom. Raising this
+      # to 3600 during the incident was treating the wrong symptom - the hang
+      # was the recursive-NS check above, not propagation latency - and it only
+      # made each failure take twice as long.
+      LINODE_PROPAGATION_TIMEOUT = "1200" # 20 min; measured need is ~150s
       LINODE_POLLING_INTERVAL    = "30"   # Check every 30 seconds
       LINODE_TTL                 = "300"  # 5 minute TTL (Linode minimum)
     }
   }
 
-  # TEMPORARILY -1 to disable renewal (INCIDENT: see below).
+  # DELIBERATELY -1: automatic renewal is UNSAFE with the current architecture.
   #
-  # The DNS-01 challenge is not validating: the _acme-challenge TXT records are
-  # created, publish correctly and resolve from all five authoritative
-  # nameservers, yet the provider waits out its entire propagation timeout
-  # (observed at both 1200s and 3600s) without the order ever completing.
-  # Let's Encrypt hands back the same challenge tokens on each attempt.
+  # certificate_pem / private_key_pem / issuer_pem feed every instance through
+  # ssl_certificate / ssl_private_key / ssl_issuer_cert (main.tf ~350), which
+  # the module interpolates into metadata.user_data. metadata is force-new and
+  # is NOT in ignore_changes (the lifecycle block in modules/linode/main.tf is
+  # comments only), and create_before_destroy was deliberately removed because
+  # Linode requires unique labels. Instances use for_each over var.regions.
   #
-  # A negative value disables the renewal check, so an expired certificate is
-  # reused as-is. That decouples rebuilding an instance from fixing ACME - with
-  # 30 here, a region cannot be recreated at all while the challenge is broken,
-  # which turned a routine replacement into a prolonged outage.
+  # So an automatic renewal would destroy EVERY region in parallel, unattended,
+  # with no operator present - a full-service outage triggered by a background
+  # timer. Setting this to 30 arms exactly that.
   #
-  # RESTORE TO 30 once DNS-01 is fixed. Until then the web UI serves an expired
-  # certificate; Resilio sync itself is unaffected.
+  # Until certificate delivery is decoupled from user_data (deliver the PEMs via
+  # null_resource.provision_scripts, which now has a content hash trigger, so a
+  # renewal re-provisions files instead of replacing hosts), renewal must stay
+  # manual and staged one region at a time.
+  #
+  # Current certificate expires 2026-12-04. Renew before then with:
+  #   terraform apply -replace=acme_certificate.resilio -target=acme_certificate.resilio
+  #
+  # NOTE: -replace destroys before creating, and the provider REVOKES on destroy
+  # by default - so the live certificate would be revoked while the instances are
+  # still serving it, and revocation is irreversible. revoke_certificate_on_destroy
+  # is set to false below for exactly this reason; the superseded certificate is
+  # left to expire naturally instead. Revoke deliberately, and only on suspected
+  # key compromise.
+  # then roll regions individually per CLAUDE.md.
   min_days_remaining = -1
 }
 
