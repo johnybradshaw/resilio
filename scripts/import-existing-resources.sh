@@ -48,7 +48,7 @@ import_dns_domain() {
     echo -e "${BLUE}═══ Import DNS Domain ═══${NC}"
     echo ""
 
-    read -p "Enter domain name (e.g., aka.bradshaw.cloud): " DOMAIN
+    read -p "Enter domain name (e.g., resilio.example.com): " DOMAIN
 
     if command -v linode-cli &> /dev/null; then
         echo -e "${YELLOW}Looking up domain ID...${NC}"
