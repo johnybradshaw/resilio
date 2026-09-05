@@ -139,7 +139,24 @@ chpasswd:
       password: "${user_password}"
 
 # File Management
+%{ if landscape_enabled ~}
+# Landscape SaaS - native cloud-init module (installs + registers).
+landscape:
+  client:
+    account_name: "${landscape_account_name}"
+    computer_title: "${instance_label}"
+    registration_key: "${landscape_registration_key}"
+    tags: "${landscape_tags}"
+%{ endif ~}
 write_files:
+%{ if wazuh_enabled ~}
+  # Enrolment password as a file so it is never interpolated into a shell
+  # command, where a quote in the value would break parsing. Removed after use.
+  - path: /etc/resilio-sync/wazuh-authd.pass
+    permissions: '0600'
+    owner: root:root
+    content: ${jsonencode(wazuh_registration_password)}
+%{ endif ~}
   # Resilio Sync custom OS settings
   - path: /etc/sysctl.d/99-custom.conf
     content: |
@@ -743,6 +760,84 @@ runcmd:
 
   - systemctl enable --now resilio-sync
 
+%{ if wazuh_enabled ~}
+  # Wazuh enrolment. Subshell: an exit here must not abort later entries.
+  - |
+    (
+    # set -e: without it a failed key import, apt-get or systemctl fell through
+    # to the log check below, which then "succeeded" merely because the
+    # "unverified manager" string was absent.
+    set -e
+    CA=/var/ossec/etc/manager-ca.pem
+    if [ -z "${wazuh_manager}" ] || [ -z "${wazuh_ca_sha256}" ]; then
+      echo ">>> ERROR: Wazuh enabled but endpoint/CA fingerprint unset - not enrolling"
+      exit 1
+    fi
+    if [ -s /var/ossec/etc/client.keys ]; then
+      echo ">>> Wazuh agent already enrolled - skipping"
+      exit 0
+    fi
+    mkdir -p /var/ossec/etc
+    # CA is fetched, not embedded (2.2KB PEM will not fit). Transport is
+    # untrusted: the fingerprint check IS the security property. Never skip it.
+    #
+    # This depends on the object-storage remote being usable. With backups
+    # disabled the "r" remote holds CHANGEME credentials, the fetch fails, and
+    # the agent silently never enrols - so check it explicitly and say why.
+    if ! rclone lsd "r:${object_storage_bucket}" >/dev/null 2>&1; then
+      echo ">>> ERROR: object storage remote 'r' unusable (backups disabled or credentials unset)."
+      echo ">>>        Wazuh needs it to fetch the pinned CA. Not enrolling."
+      exit 1
+    fi
+    if ! rclone copyto "r:${object_storage_bucket}/${wazuh_ca_object}" "$CA" --retries 3; then
+      echo ">>> ERROR: cannot fetch Wazuh CA - refusing to enrol unpinned"
+      exit 1
+    fi
+    GOT=$(openssl x509 -in "$CA" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+    if [ "$GOT" != "${wazuh_ca_sha256}" ]; then
+      echo ">>> ERROR: Wazuh CA fingerprint mismatch - refusing to enrol"
+      echo ">>>   expected ${wazuh_ca_sha256}"
+      echo ">>>   got      $GOT"
+      rm -f "$CA"
+      exit 1
+    fi
+    chmod 0644 "$CA"
+    # Read the enrolment password from a 0600 file rather than interpolating it
+    # into the command line: a single quote in the value would otherwise break
+    # the shell block, failing silently mid-boot.
+    WAZUH_PW=$(cat /etc/resilio-sync/wazuh-authd.pass)
+    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring \
+      --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+    chmod 644 /usr/share/keyrings/wazuh.gpg
+    echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" \
+      > /etc/apt/sources.list.d/wazuh.list
+    apt-get update
+    WAZUH_MANAGER="${wazuh_manager}" \
+    WAZUH_REGISTRATION_SERVER="${wazuh_registration_server}" \
+    WAZUH_REGISTRATION_PASSWORD="$WAZUH_PW" \
+    WAZUH_REGISTRATION_CA="$CA" \
+    WAZUH_AGENT_NAME="${instance_label}" \
+    WAZUH_AGENT_GROUP="${wazuh_agent_group}" \
+    WAZUH_PROTOCOL="tcp" \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y wazuh-agent
+    apt-mark hold wazuh-agent
+    systemctl daemon-reload
+    systemctl enable --now wazuh-agent
+    sleep 10
+    # Positive confirmation. client.keys is written only on successful
+    # enrolment; the ABSENCE of an error string is not evidence of success.
+    if [ ! -s /var/ossec/etc/client.keys ]; then
+      echo ">>> ERROR: Wazuh enrolment produced no key - agent is NOT enrolled"
+      exit 1
+    fi
+    if grep -qi "unverified manager" /var/ossec/logs/ossec.log 2>/dev/null; then
+      echo ">>> ERROR: agent enrolled UNVERIFIED - CA pinning did not take effect"
+      exit 1
+    fi
+    rm -f /etc/resilio-sync/wazuh-authd.pass
+    echo ">>> Wazuh agent enrolled as ${instance_label}"
+    )
+%{ endif ~}
 
   # Configure backup based on mode (scheduled, realtime, or hybrid)
   #

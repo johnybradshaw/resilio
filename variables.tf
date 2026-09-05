@@ -342,3 +342,125 @@ variable "ssh_private_key" {
     error_message = "provision_scripts is true but ssh_private_key is empty. The file provisioner cannot connect, so instances would keep their cloud-init placeholders and backups would not run. Set TF_VAR_ssh_private_key."
   }
 }
+
+# =============================================================================
+# WAZUH AGENT
+# =============================================================================
+# Endpoints, the CA fingerprint and the enrolment password are deliberately NOT
+# defaulted here: this repository is public, and together they would map the
+# SIEM. Set them in terraform.tfvars (gitignored). See the internal Wazuh agent
+# enrolment runbook for the values.
+#
+# Enrolment and event reporting use TWO DIFFERENT hosts; they are not
+# interchangeable and pointing at the wrong one fails as a silent timeout.
+
+variable "wazuh_enabled" {
+  description = "Enrol instances into the Wazuh SIEM."
+  type        = bool
+  default     = false
+}
+
+variable "wazuh_manager" {
+  description = "Wazuh WORKERS address - receives agent events on 1514. NOT the enrolment host. Set in terraform.tfvars."
+  type        = string
+  default     = ""
+}
+
+variable "wazuh_registration_server" {
+  description = "Wazuh MASTER address - handles enrolment on 1515. NOT the event host. Set in terraform.tfvars."
+  type        = string
+  default     = ""
+}
+
+variable "wazuh_registration_password" {
+  description = "authd enrolment password. Held in 1Password; see the internal Wazuh agent enrolment runbook for the item reference."
+  type        = string
+  sensitive   = true
+  default     = ""
+
+  validation {
+    condition     = var.wazuh_registration_password == "" || length(var.wazuh_registration_password) >= 16
+    error_message = "Wazuh enrolment password must be at least 16 characters."
+  }
+
+  # A `check` block was used for this first. check blocks only WARN - plan and
+  # apply both proceed - so enabling Wazuh with values missing would have
+  # replaced every instance with cloud-init that could never enrol.
+  # Cross-variable validation errors instead (Terraform >= 1.9; root requires 1.10).
+  validation {
+    condition = !var.wazuh_enabled || (
+      var.wazuh_manager != "" &&
+      var.wazuh_registration_server != "" &&
+      var.wazuh_registration_password != "" &&
+      var.wazuh_ca_sha256 != ""
+    )
+    error_message = "wazuh_enabled is true but one of wazuh_manager, wazuh_registration_server, wazuh_registration_password or wazuh_ca_sha256 is empty. Set them in terraform.tfvars; they are deliberately not defaulted in this public repository."
+  }
+}
+
+variable "wazuh_agent_group" {
+  description = "Comma-separated Wazuh agent groups. Groups must already exist on the manager."
+  type        = string
+  default     = "default"
+
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9_.-]+(,[a-zA-Z0-9_.-]+)*$", var.wazuh_agent_group))
+    error_message = "Agent groups must be a comma-separated list of alphanumeric names."
+  }
+}
+
+variable "wazuh_ca_sha256" {
+  description = "Expected SHA-256 fingerprint of the pinned Wazuh manager CA (colon-separated, uppercase). The agent refuses to enrol if the fetched CA does not match. Set in terraform.tfvars."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.wazuh_ca_sha256 == "" || can(regex("^([0-9A-F]{2}:){31}[0-9A-F]{2}$", var.wazuh_ca_sha256))
+    error_message = "Must be a colon-separated uppercase SHA-256 fingerprint (32 bytes)."
+  }
+}
+
+variable "wazuh_ca_object" {
+  description = "Object key of the pinned manager CA within the primary backup bucket. Fetched at boot rather than embedded, because a 2.2KB PEM does not fit in user_data."
+  type        = string
+  default     = "_bootstrap/manager-ca.pem"
+}
+
+# =============================================================================
+# CANONICAL LANDSCAPE (SaaS)
+# =============================================================================
+
+variable "landscape_enabled" {
+  description = "Enrol instances into Canonical Landscape SaaS."
+  type        = bool
+  default     = false
+}
+
+variable "landscape_account_name" {
+  description = "Landscape SaaS account name, from the Landscape web portal homepage."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.landscape_enabled || var.landscape_account_name != ""
+    error_message = "landscape_enabled is true but landscape_account_name is empty; landscape-config requires it and enrolment would fail on every instance."
+  }
+}
+
+variable "landscape_registration_key" {
+  description = "Landscape account-wide registration key. Without it, machines land in Pending Computers and need manual approval."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "landscape_tags" {
+  description = "Extra Landscape tags. Letters, digits, hyphens and underscores only - no dots, spaces or commas."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for t in var.landscape_tags : can(regex("^[-_0-9a-zA-Z]+$", t))])
+    error_message = "Landscape tags may contain only letters, digits, hyphens and underscores."
+  }
+}
