@@ -259,6 +259,15 @@ resource "null_resource" "provision_scripts" {
     bastion_host        = var.jumpbox_ip
     bastion_user        = var.cloud_user
     bastion_private_key = var.ssh_private_key
+
+    # The CIS Level 1 pass (usg fix, in cloud-init) remounts /tmp noexec.
+    # Terraform's remote-exec defaults to writing its bootstrap script to
+    # /tmp/terraform_NNN.sh and executing it, which then fails with
+    #   bash: /tmp/terraform_302705650.sh: Permission denied   (exit 126)
+    # Observed on us-east once hardening had completed; fr-par succeeded only
+    # because its CIS pass had not finished yet, so this is not region-specific.
+    # Put the bootstrap script somewhere exec is permitted.
+    script_path = "/home/${var.cloud_user}/terraform_provision_%RAND%.sh"
   }
 
   # Transfer resilio-folders script
