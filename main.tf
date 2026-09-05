@@ -50,19 +50,23 @@ resource "linode_domain" "resilio" {
   # cache can outlast the ACME propagation timeout. Set the zone's TTL by hand
   # in that case - Terraform cannot do it through a data source.
   #
-  # Intended to bound the SOA `minimum` field - the NEGATIVE cache TTL. Linode's
-  # default is 86400, so a resolver querying _acme-challenge before the record
-  # exists can cache that miss for 24 HOURS, which outlasts the ACME propagation
-  # timeout and fails the renewal. Renewal always queries a name that does not
-  # yet exist, so this is a live risk every ~60 days.
+  # NOTE: this does NOT lower the SOA `minimum` field (the NEGATIVE cache TTL).
+  # Tested: after applying ttl_sec = 300 the published SOA still reported
+  # minimum=86400 for 10+ minutes, and a control zone that has never had
+  # ttl_sec set reports the same 86400. Linode does not expose the SOA minimum.
   #
-  # UNVERIFIED: after applying this, the published SOA still reported
-  # minimum=86400 more than 7 minutes later. Either Linode republishes the SOA
-  # on a slower cycle than record changes, or ttl_sec does not map to the SOA
-  # minimum at all. Left in place because it is harmless and is the only knob
-  # the provider exposes, but do NOT rely on it: confirm with
-  #   dig +short SOA <zone> @1.1.1.1   # 7th field is the negative TTL
-  # before trusting an unattended renewal.
+  # The consequence is a live renewal hazard: a resolver that queries
+  # _acme-challenge before the record exists caches that miss for 24 HOURS,
+  # which outlasts the 1200s propagation timeout. Renewal always queries a name
+  # that does not yet exist.
+  #
+  # Mitigation when renewing manually: pre-create a dummy TXT at
+  # _acme-challenge first, so resolvers cache a positive answer instead of an
+  # NXDOMAIN. lego appends rather than replaces and matches its own value among
+  # all answers, so the dummy is harmless and can be removed afterwards.
+  #
+  # ttl_sec is kept because it does set the default record TTL, which is useful
+  # in its own right - just not for the SOA minimum.
   ttl_sec = 300
 
   lifecycle {
