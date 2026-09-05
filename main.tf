@@ -148,6 +148,11 @@ resource "linode_domain_record" "caa_issuewild" {
 #    the renewal path, while schema-level ForceNew is evaluated separately.
 #
 #    Correct procedure:
+#      # CAA first: if the parent zone blocks Let's Encrypt, issuance fails
+#      # unless these exist beforehand.
+#      terraform apply -target=linode_domain.resilio \
+#                      -target=linode_domain_record.caa_issue \
+#                      -target=linode_domain_record.caa_issuewild
 #      terraform apply -target=terraform_data.acme_key_version \
 #                      -target=tls_private_key.acme_account \
 #                      -target=acme_registration.resilio \
@@ -208,6 +213,12 @@ resource "acme_certificate" "resilio" {
   # covers CI runners and any other machine on that network.
   recursive_nameservers = ["1.1.1.1:53", "1.0.0.1:53"]
 
+  # Do NOT revoke on destroy. Replacement destroys before creating, so the
+  # default would revoke the certificate the instances are currently serving,
+  # before its replacement exists - and revocation cannot be undone. A
+  # superseded certificate expiring naturally is the safer failure mode.
+  revoke_certificate_on_destroy = false
+
   dns_challenge {
     provider = "linode"
     config = {
@@ -243,6 +254,13 @@ resource "acme_certificate" "resilio" {
   #
   # Current certificate expires 2026-12-04. Renew before then with:
   #   terraform apply -replace=acme_certificate.resilio -target=acme_certificate.resilio
+  #
+  # NOTE: -replace destroys before creating, and the provider REVOKES on destroy
+  # by default - so the live certificate would be revoked while the instances are
+  # still serving it, and revocation is irreversible. revoke_certificate_on_destroy
+  # is set to false below for exactly this reason; the superseded certificate is
+  # left to expire naturally instead. Revoke deliberately, and only on suspected
+  # key compromise.
   # then roll regions individually per CLAUDE.md.
   min_days_remaining = -1
 }
