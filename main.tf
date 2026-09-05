@@ -135,8 +135,31 @@ resource "linode_domain_record" "caa_issuewild" {
 # operation. So any `terraform destroy`, `-replace`, or a change to an argument
 # that forces replacement (email is derived from var.tld, so changing the
 # domain does it) burns the account key and requires a bump here.
+# !! CHANGING THIS VALUE REPLACES EVERY INSTANCE. Apply it targeted, then roll
+#    regions one at a time. Never as part of an ordinary `terraform apply`.
+#
+#    account_key_pem is ForceNew on acme_certificate, so a bump replaces the key,
+#    the registration and the certificate. The new PEMs flow into every
+#    linode_instances module and are interpolated into metadata.user_data, which
+#    is also force-new and is NOT in ignore_changes. create_before_destroy is
+#    off, so all regions are destroyed CONCURRENTLY.
+#
+#    min_days_remaining = -1 does NOT protect against this: it only short-circuits
+#    the renewal path, while schema-level ForceNew is evaluated separately.
+#
+#    Correct procedure:
+#      terraform apply -target=terraform_data.acme_key_version \
+#                      -target=tls_private_key.acme_account \
+#                      -target=acme_registration.resilio \
+#                      -target=acme_certificate.resilio
+#      # then, per region, waiting for each to resync:
+#      terraform apply -target='module.linode_instances["<region>"]'
+#
+#    The durable fix is to stop putting the PEMs in user_data and deliver them
+#    via null_resource.provision_scripts (which has a content-hash trigger since
+#    #53), so a certificate change re-provisions files instead of replacing hosts.
 resource "terraform_data" "acme_key_version" {
-  input = "3" # Bumped: account 2991086656 deactivated by the tld change on 2026-09-05
+  input = "3" # Bumped after the previous account was deactivated. See warning above.
 }
 
 # ACME provider registration for Let's Encrypt
