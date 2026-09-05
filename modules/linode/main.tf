@@ -248,6 +248,20 @@ resource "null_resource" "provision_scripts" {
 
   triggers = {
     instance_id = linode_instance.resilio.id
+
+    # Without this the ONLY trigger is the instance id, so editing any of the
+    # scripts below and running `terraform apply` reports "No changes" and
+    # deploys nothing - every instance keeps whatever it received when it was
+    # last CREATED. That is the same delivery gap that let a broken backup
+    # script sit undetected for 224 days, so hash the rendered sources in.
+    scripts_sha = sha256(join("", [
+      filesha256("${path.module}/../../scripts/cloud-init/resilio-folders.sh.tpl"),
+      filesha256("${path.module}/../../scripts/cloud-init/volume-auto-expand.sh.tpl"),
+      filesha256("${path.module}/../../scripts/cloud-init/resilio-backup.sh.tpl"),
+      filesha256("${path.module}/../../scripts/cloud-init/resilio-rehydrate.sh.tpl"),
+      filesha256("${path.module}/../../scripts/cloud-init/resilio-backup-watch.sh.tpl"),
+      filesha256("${path.module}/../../scripts/cloud-init/collect-diagnostics.sh"),
+    ]))
   }
 
   connection {

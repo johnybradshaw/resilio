@@ -96,8 +96,15 @@ else
   FOLDERS="data|$BASE_MOUNT"
 fi
 
-echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
+# NOTE: here-string, NOT `echo "$FOLDERS" | while`. A pipeline runs the loop in
+# a subshell, so every ERRORS increment below is discarded and the parent always
+# sees 0 - this script would then report "errors: 0", exit 0, and start Resilio
+# over folders that failed to restore. Do not reintroduce a pipe.
+SKIPPED=0
+TOTAL=0
+while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
   [ -z "$FOLDER_NAME" ] && continue
+  TOTAL=$((TOTAL + 1))
   [ -z "$MOUNT_POINT" ] && MOUNT_POINT="$BASE_MOUNT/$FOLDER_NAME"
 
   SOURCE="$REMOTE$BUCKET/$SOURCE_HOST/$FOLDER_NAME"
@@ -105,7 +112,10 @@ echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
 
   # Check if source exists
   if ! rclone lsd "$SOURCE" &>/dev/null && ! rclone ls "$SOURCE" &>/dev/null 2>&1; then
+    # Counted, not merely warned. Bad credentials or a wrong endpoint make EVERY
+    # folder "not found", which previously skipped them all and still exited 0.
     log "  WARNING: Source $SOURCE not found, skipping"
+    SKIPPED=$((SKIPPED + 1))
     continue
   fi
 
@@ -122,13 +132,31 @@ echo "$FOLDERS" | while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
     log "  ERROR: Restore failed"
     ERRORS=$((ERRORS + 1))
   fi
-done
+done <<< "$FOLDERS"
 
-# Restart Resilio Sync
+# Every source missing means the remote is wrong or unreachable, not that the
+# backups are legitimately absent. Starting Resilio over empty mount points in
+# that state risks propagating the emptiness to the healthy regions.
+if [ "$TOTAL" -gt 0 ] && [ "$SKIPPED" -eq "$TOTAL" ]; then
+  log "ERROR: no backup source was found for ANY of the $TOTAL folder(s)."
+  log "       This usually means the remote, bucket or credentials are wrong -"
+  log "       not that there is nothing to restore. Refusing to start Resilio"
+  log "       Sync, because syncing empty folders would propagate deletions."
+  exit 1
+fi
+
+if [ "$ERRORS" -gt 0 ]; then
+  log "ERROR: $ERRORS folder(s) failed to restore. Refusing to start Resilio"
+  log "       Sync: a partial restore that then syncs can delete good data on"
+  log "       the other regions. Investigate, then start it by hand."
+  exit "$ERRORS"
+fi
+
+# Restart Resilio Sync - only once every folder restored cleanly.
 if [ -z "$DRY_RUN" ]; then
   log "Starting Resilio Sync..."
   systemctl start resilio-sync
 fi
 
-log "=== Rehydration complete (errors: $ERRORS) ==="
+log "=== Rehydration complete (restored: $((TOTAL - SKIPPED)), skipped: $SKIPPED, errors: $ERRORS) ==="
 exit $ERRORS
