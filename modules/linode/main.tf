@@ -321,6 +321,7 @@ resource "null_resource" "provision_scripts" {
   # Install scripts and set permissions
   provisioner "remote-exec" {
     inline = [
+      "set -euo pipefail",
       "sudo mv /tmp/resilio-folders /usr/local/bin/resilio-folders",
       "sudo mv /tmp/volume-auto-expand.sh /usr/local/bin/volume-auto-expand.sh",
       "sudo mv /tmp/resilio-backup.sh /usr/local/bin/resilio-backup.sh",
@@ -333,7 +334,16 @@ resource "null_resource" "provision_scripts" {
       "sudo chmod +x /usr/local/bin/resilio-rehydrate.sh",
       "sudo chmod +x /usr/local/bin/resilio-backup-watch.sh",
       "sudo chmod +x /usr/local/bin/collect-diagnostics.sh",
-      "echo 'Scripts installed successfully'"
+      # Positive verification. Terraform joins `inline` into one script and
+      # takes the LAST command's exit status, so a trailing `echo` made this
+      # provisioner succeed even if every mv had failed - silently leaving the
+      # cloud-init placeholders, which exit 0 and make cron record a successful
+      # backup forever.
+      "test -s /usr/local/bin/resilio-backup.sh",
+      "test -x /usr/local/bin/resilio-backup.sh",
+      "! grep -q 'not yet provisioned' /usr/local/bin/resilio-backup.sh",
+      "! grep -q 'not yet provisioned' /usr/local/bin/resilio-rehydrate.sh",
+      "echo 'Scripts installed and verified'"
     ]
   }
 }

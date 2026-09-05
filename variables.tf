@@ -202,6 +202,21 @@ variable "backup_source_regions" {
   description = "List of VM regions that should run backups. Only VMs in these regions will push to Object Storage. Empty = no VMs backup. For efficiency, recommend only one region since all VMs sync the same data."
   type        = list(string)
   default     = [] # Set to ["us-east"] to have one region backup
+
+  # backup_enabled = true with no source regions creates buckets and an access
+  # key, bills for them, reports backup_enabled = true in the outputs - and
+  # backs up nothing, because contains([], region) is false for every region.
+  validation {
+    condition     = !var.backup_enabled || length(var.backup_source_regions) > 0 || length(var.backup_regions) > 0
+    error_message = "backup_enabled is true but backup_source_regions is empty, so NO instance will run a backup. Set it to at least one region."
+  }
+
+  # A typo'd region is otherwise a silent no-op: it has no instance, so nothing
+  # backs up and nothing reports a problem.
+  validation {
+    condition     = alltrue([for r in var.backup_source_regions : contains(var.regions, r)])
+    error_message = "backup_source_regions contains a region not present in var.regions; that region has no instance and will never back up."
+  }
 }
 
 variable "backup_versioning" {

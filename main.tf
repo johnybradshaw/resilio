@@ -382,6 +382,12 @@ resource "terraform_data" "update_resilio_firewall" {
     jumpbox_ip   = local.jumpbox_ip
     instance_ips = join(",", local.resilio_instance_ips)
     firewall_id  = local.resilio_firewall_id
+
+    # The provisioner body interpolates this, but it was NOT a trigger, so
+    # narrowing allowed_webui_cidr (or moving to a new IP) produced no plan
+    # diff at all: the old, wider CIDR stayed live on 8888/8889 while the
+    # operator believed access had been restricted.
+    webui_cidr = var.allowed_webui_cidr != null ? var.allowed_webui_cidr : local.current_ip_cidr
   }
 
   # Update firewall rules using Linode API

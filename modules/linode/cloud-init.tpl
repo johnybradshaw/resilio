@@ -650,14 +650,22 @@ runcmd:
 
       if [ "$current_label" != "$expected_label" ]; then
         echo "Relabeling $partition from '$current_label' to '$expected_label'"
-        e2label "$partition" "$expected_label"
+        if ! e2label "$partition" "$expected_label"; then
+          echo "ERROR: e2label failed on $partition - cannot mount by label"
+          touch /var/lib/cloud-mount-failures
+          continue
+        fi
       fi
 
       # Ensure mount point exists and mount if not already mounted
       mkdir -p "$mount_point"
       if ! mountpoint -q "$mount_point"; then
         echo "Mounting $partition at $mount_point"
-        mount -t ext4 -o defaults,noatime,nosuid,nodev,noexec "LABEL=$expected_label" "$mount_point"
+        if ! mount -t ext4 -o defaults,noatime,nosuid,nodev,noexec "LABEL=$expected_label" "$mount_point"; then
+          echo "ERROR: mount of LABEL=$expected_label at $mount_point FAILED"
+          touch /var/lib/cloud-mount-failures
+          continue
+        fi
       fi
     done
     echo "--- Filesystem label check complete ---"
@@ -685,6 +693,25 @@ runcmd:
   - systemctl stop resilio-sync
 
   # Set ownership on all Resilio Sync mount points and config
+  # Refuse to continue if any per-folder volume is not mounted. Without this,
+  # a failed mount left the mount point as a plain directory on the BOOT disk;
+  # the chown below and then Resilio would write there, looking entirely normal
+  # while the data sat on a 20GB disk and did not survive instance replacement.
+  - |
+    (
+    set -e
+    if [ -f /var/lib/cloud-mount-failures ]; then
+      echo "ERROR: one or more data volumes failed to label/mount - refusing to continue"
+      exit 1
+    fi
+    for mp in $(jq -r 'to_entries[] | .value.mount_point' /etc/resilio-sync/folder-device-map.json 2>/dev/null); do
+      if ! mountpoint -q "$mp"; then
+        echo "ERROR: $mp is NOT a mount point - data would land on the boot disk"
+        exit 1
+      fi
+    done
+    echo ">>> All data volumes verified mounted"
+    )
   - chown -R rslsync:rslsync ${base_mount_point} /etc/resilio-sync
 
   # Set proper ownership on SSL directory and certificates (must be root:rslsync)

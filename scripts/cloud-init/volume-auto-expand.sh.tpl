@@ -87,12 +87,21 @@ fi
 
 # Process each volume from the device map
 ERRORS=0
-jq -r 'to_entries[] | "\(.value.device_path) \(.value.partition) \(.value.label) \(.value.mount_point)"' "$DEVICE_MAP" | \
+# NOTE: process substitution, NOT a pipe. A pipeline runs the loop in a subshell
+# and every ERRORS increment below is discarded, so this script reported success
+# no matter how many volumes failed to expand - and the systemd unit went
+# active (exited), which is exactly what CLAUDE.md tells operators to check.
 while read -r DEVICE PARTITION LABEL MOUNT; do
   if ! expand_volume "$DEVICE" "$PARTITION" "$LABEL" "$MOUNT"; then
     ERRORS=$((ERRORS + 1))
   fi
-done
+done < <(jq -r 'to_entries[] | "\(.value.device_path) \(.value.partition) \(.value.label) \(.value.mount_point)"' "$DEVICE_MAP")
 
-log "Volume auto-expansion check complete"
+if [ "$ERRORS" -gt 0 ]; then
+  log "ERROR: $ERRORS volume(s) failed to expand - filesystem is smaller than the block device"
+  log "       Resilio will fill the old-sized filesystem and stall with ENOSPC."
+  exit 1
+fi
+
+log "Volume auto-expansion check complete (all volumes OK)"
 exit 0

@@ -162,18 +162,22 @@ while IFS='|' read -r FOLDER_NAME MOUNT_POINT; do
 done <<< "$FOLDERS"
 
 # Cleanup old versions (only if retention is set)
-if [ "$RETENTION_DAYS" -gt 0 ]; then
-  log "Cleaning up files older than $RETENTION_DAYS days..."
-  for REMOTE in $REMOTES; do
-    REMOTE_NAME=$(echo "$REMOTE" | tr -d ':')
-    BUCKET=$(rclone config show "$REMOTE_NAME" 2>/dev/null | grep -E '^bucket' | cut -d= -f2 | tr -d ' ' || echo "${object_storage_bucket}")
-    [ -z "$BUCKET" ] && BUCKET="${object_storage_bucket}"
-
-    rclone delete "$REMOTE$BUCKET/$HOSTNAME" --min-age "$${RETENTION_DAYS}d" >> "$LOG_FILE" 2>&1 || true
-  done
-fi
-
+# Retention pruning is deliberately INSIDE the success check below. Running it
+# after a failed backup deletes objects older than the retention window on the
+# strength of an upload that did not happen - the one operation that must never
+# run off an unverified backup.
 if [ "$ERRORS" -eq 0 ]; then
+  if [ "$RETENTION_DAYS" -gt 0 ]; then
+    log "Cleaning up files older than $RETENTION_DAYS days..."
+    for REMOTE in $REMOTES; do
+      REMOTE_NAME=$(echo "$REMOTE" | tr -d ':')
+      BUCKET=$(rclone config show "$REMOTE_NAME" 2>/dev/null | grep -E '^bucket' | cut -d= -f2 | tr -d ' ' || echo "${object_storage_bucket}")
+      [ -z "$BUCKET" ] && BUCKET="${object_storage_bucket}"
+
+      rclone delete "$REMOTE$BUCKET/$HOSTNAME" --min-age "$${RETENTION_DAYS}d" >> "$LOG_FILE" 2>&1 || true
+    done
+  fi
+
   date +%s > "$STAMP_FILE"
   log "Success stamp updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 else
