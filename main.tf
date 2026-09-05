@@ -44,12 +44,25 @@ resource "linode_domain" "resilio" {
   soa_email = "admin@${var.tld}"
   tags      = ["terraform", "dns", var.project_name]
 
-  # Drives the SOA, including its `minimum` field - the NEGATIVE cache TTL.
-  # Linode's default leaves it at 86400, so a resolver that queries
-  # _acme-challenge before the record exists caches that miss for 24 HOURS and
-  # the DNS-01 challenge cannot validate until it expires. Renewal runs every
-  # ~60 days and always queries a name that does not exist yet, so the default
-  # turns a routine renewal into a coin flip. 300s bounds the wait.
+  # NOTE: this resource has count = var.create_domain ? 1 : 0, and create_domain
+  # defaults to FALSE. When reusing an existing Linode zone this block never
+  # applies, so that zone keeps Linode's 86400s SOA minimum and the negative
+  # cache can outlast the ACME propagation timeout. Set the zone's TTL by hand
+  # in that case - Terraform cannot do it through a data source.
+  #
+  # Intended to bound the SOA `minimum` field - the NEGATIVE cache TTL. Linode's
+  # default is 86400, so a resolver querying _acme-challenge before the record
+  # exists can cache that miss for 24 HOURS, which outlasts the ACME propagation
+  # timeout and fails the renewal. Renewal always queries a name that does not
+  # yet exist, so this is a live risk every ~60 days.
+  #
+  # UNVERIFIED: after applying this, the published SOA still reported
+  # minimum=86400 more than 7 minutes later. Either Linode republishes the SOA
+  # on a slower cycle than record changes, or ttl_sec does not map to the SOA
+  # minimum at all. Left in place because it is harmless and is the only knob
+  # the provider exposes, but do NOT rely on it: confirm with
+  #   dig +short SOA <zone> @1.1.1.1   # 7th field is the negative TTL
+  # before trusting an unattended renewal.
   ttl_sec = 300
 
   lifecycle {
@@ -183,13 +196,28 @@ resource "acme_certificate" "resilio" {
     }
   }
 
-  # Renew when less than 30 days remain.
+  # DELIBERATELY -1: automatic renewal is UNSAFE with the current architecture.
   #
-  # This was -1 during the DNS-01 incident, which disabled renewal entirely so
-  # that regions could still be rebuilt. Restored now that issuance works: a
-  # certificate that never renews is a slower version of the same outage, and
-  # nothing in this repo watches certificate_not_after.
-  min_days_remaining = 30
+  # certificate_pem / private_key_pem / issuer_pem feed every instance through
+  # ssl_certificate / ssl_private_key / ssl_issuer_cert (main.tf ~350), which
+  # the module interpolates into metadata.user_data. metadata is force-new and
+  # is NOT in ignore_changes (the lifecycle block in modules/linode/main.tf is
+  # comments only), and create_before_destroy was deliberately removed because
+  # Linode requires unique labels. Instances use for_each over var.regions.
+  #
+  # So an automatic renewal would destroy EVERY region in parallel, unattended,
+  # with no operator present - a full-service outage triggered by a background
+  # timer. Setting this to 30 arms exactly that.
+  #
+  # Until certificate delivery is decoupled from user_data (deliver the PEMs via
+  # null_resource.provision_scripts, which now has a content hash trigger, so a
+  # renewal re-provisions files instead of replacing hosts), renewal must stay
+  # manual and staged one region at a time.
+  #
+  # Current certificate expires 2026-12-04. Renew before then with:
+  #   terraform apply -replace=acme_certificate.resilio -target=acme_certificate.resilio
+  # then roll regions individually per CLAUDE.md.
+  min_days_remaining = -1
 }
 
 # Create per-folder data volumes for each region
